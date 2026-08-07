@@ -16,7 +16,7 @@ const body = Manrope({
 const siteUrl =
   process.env.NEXT_PUBLIC_SITE_URL ??
   (process.env.GITHUB_PAGES === "true"
-    ? "https://lochesystem.github.io/aurora-ascent/"
+    ? "https://lochesystem.github.io/aurora-wilds/"
     : "http://localhost:3000/");
 
 export const metadata: Metadata = {

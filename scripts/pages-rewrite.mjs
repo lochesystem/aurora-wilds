@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
  * Rewrites root-absolute asset URLs so the static export works under
- * https://<user>.github.io/aurora-ascent/
+ * https://<user>.github.io/aurora-wilds/
  */
 import fs from "node:fs";
 import path from "node:path";
 
 const ROOT = path.resolve("dist/client");
-const PREFIX = "/aurora-ascent";
+const PREFIX = "/aurora-wilds";
 const EXTENSIONS = new Set([".html", ".js", ".css", ".json", ".rsc", ".svg"]);
 
 function walk(dir) {

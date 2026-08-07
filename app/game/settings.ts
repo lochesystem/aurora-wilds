@@ -22,7 +22,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   vibration: 0.55,
 };
 
-const KEY = "aurora-ascent-settings-v1";
+const KEY = "aurora-wilds-settings-v1";
 
 export function loadSettings(): GameSettings {
   if (typeof window === "undefined") return DEFAULT_SETTINGS;
