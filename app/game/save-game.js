@@ -12,9 +12,10 @@ export function normalizeSave(raw){
     position:{x:finite(position.x),y:finite(position.y,3),z:finite(position.z)},
     health:Math.min(100,nonNegative(raw.health,100)),hunger:Math.min(100,nonNegative(raw.hunger,78)),
     berries:Math.floor(nonNegative(raw.berries)),wood:Math.floor(nonNegative(raw.wood)),stone:Math.floor(nonNegative(raw.stone)),
-    axeDurability:Math.min(100,nonNegative(raw.axeDurability)),pickaxeDurability:Math.min(100,nonNegative(raw.pickaxeDurability)),hammer:Boolean(raw.hammer),campfireKits:Math.floor(nonNegative(raw.campfireKits)),
+    axeDurability:Math.min(100,nonNegative(raw.axeDurability)),pickaxeDurability:Math.min(100,nonNegative(raw.pickaxeDurability)),spearDurability:Math.min(100,nonNegative(raw.spearDurability)),hammer:Boolean(raw.hammer),campfireKits:Math.floor(nonNegative(raw.campfireKits)),
     survivalTime:nonNegative(raw.survivalTime),survivedNights:Math.floor(nonNegative(raw.survivedNights)),selectedSlot:Math.max(0,Math.min(8,Math.floor(nonNegative(raw.selectedSlot)))),
     collectedResources:Array.isArray(raw.collectedResources)?raw.collectedResources.filter(value=>typeof value==="string").slice(0,5000):[],
+    resourceDamage:normalizeDamage(raw.resourceDamage),
     campfires:Array.isArray(raw.campfires)?raw.campfires.filter(validPlacement).slice(0,200):[],
     structures:Array.isArray(raw.structures)?raw.structures.filter(validStructure).slice(0,1000).map(value=>({...value,storage:normalizeStorage(value.storage)})):[],
     respawn:raw.respawn&&typeof raw.respawn==="object"?{x:finite(raw.respawn.x),y:finite(raw.respawn.y,3),z:finite(raw.respawn.z)}:null,
@@ -24,3 +25,4 @@ export function normalizeSave(raw){
 function validPlacement(value){return value&&typeof value==="object"&&[value.x,value.y,value.z].every(Number.isFinite);}
 function validStructure(value){return validPlacement(value)&&typeof value.id==="string"&&typeof value.rotation==="number"&&Number.isFinite(value.rotation);}
 function normalizeStorage(value){return{berries:Math.floor(nonNegative(value?.berries)),wood:Math.floor(nonNegative(value?.wood)),stone:Math.floor(nonNegative(value?.stone))};}
+function normalizeDamage(value){if(!value||typeof value!=="object")return{};return Object.fromEntries(Object.entries(value).filter(([id,damage])=>typeof id==="string"&&typeof damage==="number"&&Number.isFinite(damage)).slice(0,5000).map(([id,damage])=>[id,Math.max(0,Math.min(20,damage))]));}

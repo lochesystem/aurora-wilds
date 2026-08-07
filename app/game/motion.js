@@ -9,10 +9,10 @@ export function movementResponse(grounded,balancing){
   return {acceleration:24,drag:4.4,maxSpeed:7};
 }
 
-export function stepPlanarVelocity(current,input,dt,grounded,balancing){
+export function stepPlanarVelocity(current,input,dt,grounded,balancing,speedMultiplier=1){
   const response=movementResponse(grounded,balancing),inputLength=Math.hypot(input.x,input.z);
   if(inputLength>.001){
-    const strength=Math.min(1,inputLength),target={x:input.x/inputLength*response.maxSpeed*strength,z:input.z/inputLength*response.maxSpeed*strength};
+    const strength=Math.min(1,inputLength),maxSpeed=response.maxSpeed*Math.max(0,speedMultiplier),target={x:input.x/inputLength*maxSpeed*strength,z:input.z/inputLength*maxSpeed*strength};
     const delta={x:target.x-current.x,z:target.z-current.z},deltaLength=Math.hypot(delta.x,delta.z),currentLength=Math.hypot(current.x,current.z);let steering=1;
     if(currentLength>.1){const alignment=(current.x*target.x+current.z*target.z)/(currentLength*Math.max(.001,Math.hypot(target.x,target.z)));if(alignment<-.2)steering=.72;else if(alignment<.45)steering=.86}
     const maxChange=response.acceleration*steering*Math.max(0,dt);if(deltaLength<=maxChange)return target;

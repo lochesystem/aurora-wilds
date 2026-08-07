@@ -3,7 +3,7 @@ import test from "node:test";
 import { CRAFTING_RECIPES, canCraft, craftRecipe, getRecipe } from "../app/game/crafting.js";
 
 test("as receitas essenciais da primeira noite são estáveis",()=>{
-  assert.deepEqual(CRAFTING_RECIPES.map(recipe=>recipe.id),["axe","pickaxe","hammer","campfire"]);
+  assert.deepEqual(CRAFTING_RECIPES.map(recipe=>recipe.id),["axe","pickaxe","hammer","spear","campfire"]);
   assert.equal(getRecipe("campfire")?.cost.wood,4);
 });
 

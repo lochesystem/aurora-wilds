@@ -1,7 +1,9 @@
 export type Quality = "low" | "medium" | "high";
+export type GrassAmount = "none" | "low" | "high";
 
 export interface GameSettings {
   quality: Quality;
+  grassAmount: GrassAmount;
   shadows: boolean;
   bloom: boolean;
   cameraSensitivity: number;
@@ -13,6 +15,7 @@ export interface GameSettings {
 
 export const DEFAULT_SETTINGS: GameSettings = {
   quality: "high",
+  grassAmount: "high",
   shadows: true,
   bloom: true,
   cameraSensitivity: 0.75,
@@ -30,6 +33,7 @@ export function loadSettings(): GameSettings {
     const raw = JSON.parse(localStorage.getItem(KEY) || "{}");
     return {
       quality: ["low", "medium", "high"].includes(raw.quality) ? raw.quality : DEFAULT_SETTINGS.quality,
+      grassAmount: ["none", "low", "high"].includes(raw.grassAmount) ? raw.grassAmount : DEFAULT_SETTINGS.grassAmount,
       shadows: typeof raw.shadows === "boolean" ? raw.shadows : DEFAULT_SETTINGS.shadows,
       bloom: typeof raw.bloom === "boolean" ? raw.bloom : DEFAULT_SETTINGS.bloom,
       cameraSensitivity: clampNumber(raw.cameraSensitivity, .3, 1.5, DEFAULT_SETTINGS.cameraSensitivity),

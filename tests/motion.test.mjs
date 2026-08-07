@@ -45,3 +45,13 @@ test("a rotação cruza o limite de 180 graus pelo caminho mais curto",()=>{
   assert.ok(traveled<degrees(2),"o personagem não deve executar uma volta quase completa");
   assert.ok(Math.abs(Math.abs(halfway)-Math.PI)<degrees(1.1));
 });
+
+test("sprint converge para uma velocidade maior sem acelerar indefinidamente",()=>{
+  let walking={x:0,z:0},running={x:0,z:0};
+  for(let frame=0;frame<240;frame++){
+    walking=stepPlanarVelocity(walking,{x:1,z:0},1/60,true,false,.92);
+    running=stepPlanarVelocity(running,{x:1,z:0},1/60,true,false,1.35);
+  }
+  assert.ok(running.x>walking.x);
+  assert.ok(running.x<=7*1.35+.001);
+});

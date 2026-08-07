@@ -25,11 +25,12 @@ test("server-renderiza a identidade final do jogo", async () => {
 });
 
 test("mantém os sistemas essenciais do survival no bundle-fonte", async () => {
-  const [shell, engine, world, building, saveGame, settings, packageJson] = await Promise.all([
+  const [shell, engine, world, building, harvesting, saveGame, settings, packageJson] = await Promise.all([
     readFile(new URL("../app/game/GameShell.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/game/engine.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/game/survival-world.js", import.meta.url), "utf8"),
     readFile(new URL("../app/game/building.js", import.meta.url), "utf8"),
+    readFile(new URL("../app/game/harvesting.js", import.meta.url), "utf8"),
     readFile(new URL("../app/game/save-game.js", import.meta.url), "utf8"),
     readFile(new URL("../app/game/settings.ts", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
@@ -52,11 +53,19 @@ test("mantém os sistemas essenciais do survival no bundle-fonte", async () => {
   assert.match(engine, /startBuilding/);
   assert.match(engine, /interactChest/);
   assert.match(engine, /respawnPosition/);
+  assert.match(engine, /attackResource/);
+  assert.match(engine, /setPlayerEquipment/);
+  assert.match(engine, /AnimationMixer/);
   assert.match(shell, /Construir acampamento/);
   assert.match(building, /foundation/);
   assert.match(building, /chest/);
+  assert.match(harvesting, /harvestHit/);
   assert.match(saveGame, /aurora-wilds-save-v1/);
   assert.match(settings, /localStorage/);
+  assert.match(settings, /grassAmount/);
+  assert.match(shell, /Nenhuma/);
+  assert.match(shell, /Pouca/);
+  assert.match(shell, /Muita/);
   assert.match(packageJson, /@dimforge\/rapier3d-compat/);
   assert.match(packageJson, /"three"/);
   await access(new URL("../public/og.png", import.meta.url));
