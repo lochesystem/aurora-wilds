@@ -55,7 +55,8 @@ test("mantém os sistemas essenciais do survival no bundle-fonte", async () => {
   assert.match(engine, /respawnPosition/);
   assert.match(engine, /attackResource/);
   assert.match(engine, /setPlayerEquipment/);
-  assert.match(engine, /AnimationMixer/);
+  assert.match(engine, /attackStyleFor/);
+  assert.match(engine, /attackImpact/);
   assert.match(shell, /Construir acampamento/);
   assert.match(building, /foundation/);
   assert.match(building, /chest/);

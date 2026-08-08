@@ -4,17 +4,21 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
-import { animatePlayerModel, createPlayerAttackClips, createPlayerModel, PLAYER_MODEL_GROUND_OFFSET, setPlayerEquipment, type PlayerRig } from "./models";
+import { animatePlayerModel, createPlayerModel, PLAYER_MODEL_GROUND_OFFSET, setPlayerEquipment, type Equipment, type PlayerRig } from "./models";
+import { attackDuration, attackEquipmentForStep, attackImpact, attackStyleFor } from "./attack-pose.js";
 import { lerpAngle, stepPlanarVelocity } from "./motion.js";
 import type { GameSettings } from "./settings";
 import { craftRecipe, getRecipe } from "./crafting.js";
-import { BUILDING_PIECES, canBuild, footprintsOverlap, getBuildingPiece, snapToGrid } from "./building.js";
+import { BUILDING_PIECES, buildingPlacementBlocked, canBuild, findBuildingSnap, getBuildingPiece, snapToGrid } from "./building.js";
 import { normalizeSave, SAVE_KEY, SAVE_VERSION } from "./save-game.js";
 import { harvestHit, RESOURCE_HEALTH } from "./harvesting.js";
 import { finishCombo, requestCombo } from "./combat-combo.js";
+import { FAUNA_STATS, faunaForChunk, faunaHitDamage, faunaIntent } from "./fauna.js";
+import { DEFAULT_HOTBAR, assignHotbarItem, normalizeHotbarSlots } from "./inventory.js";
 import { createFlowerField, createFlowerGeometry, createGrassField, createGrassGeometry, createGrassMaterial, updateGrassInteraction } from "./grass";
 import { createSky, createToonGradient, PALETTE, skyPalette, updateWind, type SkyRig } from "./art";
 import { createBerryBush, createFoliageAssets, createRock, createTree, disposeFoliageAssets, seededRandom, treeVariantFor, type FoliageAssets } from "./foliage";
+import { worldTimeAt } from "./world-time.js";
 import {
   CHUNK_LOAD_RADIUS,
   CHUNK_SEGMENTS,
@@ -34,6 +38,8 @@ export interface GameSnapshot {
   health: number;
   hunger: number;
   berries: number;
+  rawMeat: number;
+  cookedMeat: number;
   wood: number;
   stone: number;
   distance: number;
@@ -41,6 +47,7 @@ export interface GameSnapshot {
   biome: string;
   interaction: string;
   selectedSlot: number;
+  hotbarSlots: string[];
   axeDurability: number;
   pickaxeDurability: number;
   spearDurability: number;
@@ -53,6 +60,8 @@ export interface GameSnapshot {
   hammer: boolean;
   buildingPiece: string;
   buildingValid: boolean;
+  buildingSnap: string;
+  buildingIssue: string;
   sheltered: boolean;
   comboStep: number;
   comboBuffered: number;
@@ -73,18 +82,22 @@ type ResourceKind = "berry" | "wood" | "stone";
 type ResourceDefinition = { id:string; kind:ResourceKind; x:number; y:number; z:number; scale:number };
 type ResourceObject = ResourceDefinition & { object: THREE.Group; health:number; maxHealth:number; hitFlash:number; destroying:number };
 type ResourceDrop = {mesh:THREE.Mesh;velocity:THREE.Vector3;life:number};
-type LoadedChunk = { group: THREE.Group; collider: RAPIER.Collider; resources: ResourceObject[]; grass:THREE.InstancedMesh|null; flowers:THREE.InstancedMesh|null; chunkX:number; chunkZ:number };
+type AnimalKind="grazer"|"predator";
+type AnimalObject={id:string;kind:AnimalKind;x:number;y:number;z:number;homeX:number;homeZ:number;heading:number;group:THREE.Group;health:number;maxHealth:number;provoked:number;attackCooldown:number;wanderTimer:number;hitFlash:number;deadTimer:number;phase:number};
+type AttackTarget=ResourceObject|AnimalObject;
+type LoadedChunk = { group: THREE.Group; collider: RAPIER.Collider; resources: ResourceObject[]; animals:AnimalObject[]; grass:THREE.InstancedMesh|null; flowers:THREE.InstancedMesh|null; chunkX:number; chunkZ:number };
 type Campfire = { group:THREE.Group; flame:THREE.Mesh; light:THREE.PointLight; position:THREE.Vector3; phase:number };
 type BuildingDefinition = (typeof BUILDING_PIECES)[number];
 type StructureStorage = {berries:number;wood:number;stone:number};
 type Structure = {id:string;group:THREE.Group;position:THREE.Vector3;rotation:number;definition:BuildingDefinition;collider:RAPIER.Collider|null;storage:StructureStorage};
 type SavedStructure = {id:string;x:number;y:number;z:number;rotation:number;storage?:StructureStorage};
+type PendingBuilding = {definition:BuildingDefinition;position:THREE.Vector3;rotation:number};
 
 const EMPTY_SNAPSHOT: GameSnapshot = {
-  health: 100, hunger: 78, berries: 0, wood: 0, stone: 0,
-  distance: 0, chunks: 0, biome: "Campos de Aurora", interaction: "", selectedSlot:0,
+  health: 100, hunger: 78, berries: 0, rawMeat:0, cookedMeat:0, wood: 0, stone: 0,
+  distance: 0, chunks: 0, biome: "Campos de Aurora", interaction: "", selectedSlot:0,hotbarSlots:[...DEFAULT_HOTBAR],
   axeDurability:0,pickaxeDurability:0,spearDurability:0,campfireKits:0,timeLabel:"07:00",isNight:false,temperature:18,nearFire:false,survivedNights:0,
-  hammer:false,buildingPiece:"",buildingValid:false,sheltered:false,comboStep:0,comboBuffered:0,gamepad: "",
+  hammer:false,buildingPiece:"",buildingValid:false,buildingSnap:"",buildingIssue:"",sheltered:false,comboStep:0,comboBuffered:0,gamepad: "",
 };
 
 export class AuroraGame {
@@ -102,9 +115,8 @@ export class AuroraGame {
   private player = new THREE.Group();
   private playerVisual = new THREE.Group();
   private playerRig!: PlayerRig;
-  private playerMixer!: THREE.AnimationMixer;
-  private attackClips!: ReturnType<typeof createPlayerAttackClips>;
-  private attackAction: THREE.AnimationAction | null = null;
+  private attackStyle = "jab";
+  private attackDuration = 0.36;
   private settings!: GameSettings;
   private loadedChunks = new Map<string, LoadedChunk>();
   private collectedResources = new Set<string>();
@@ -123,6 +135,8 @@ export class AuroraGame {
   private health = 100;
   private hunger = 78;
   private berries = 0;
+  private rawMeat = 0;
+  private cookedMeat = 0;
   private wood = 0;
   private stone = 0;
   private axeDurability = 0;
@@ -136,6 +150,10 @@ export class AuroraGame {
   private buildingGhost: THREE.Group | null = null;
   private buildingRotation = 0;
   private buildingValid = false;
+  private buildingSnap = "";
+  private buildingIssue = "";
+  private buildingSnapKey = "";
+  private pendingBuilding:PendingBuilding|null = null;
   private nearestChest: Structure | null = null;
   private respawnPosition: THREE.Vector3 | null = null;
   private spawnPosition = new THREE.Vector3(0,terrainHeightAt(0,0)+2.2,0);
@@ -148,16 +166,20 @@ export class AuroraGame {
   private snapshotTimer = 0;
   private hurtCooldown = 0;
   private nearestResource: ResourceObject | null = null;
+  private nearestAnimal: AnimalObject | null = null;
+  private defeatedFauna = new Set<string>();
   private resourceDamage = new Map<string,number>();
   private resourceDrops: ResourceDrop[] = [];
   private attackTime = 0;
-  private attackTarget: ResourceObject | null = null;
+  private attackTarget: AttackTarget | null = null;
   private attackImpactDone = false;
+  private attackEquipment:Equipment = "hands";
   private comboStep = 0;
   private comboBuffered = 0;
   private comboResetTimer = 0;
   private equippedVisual = "";
   private selectedSlot = 0;
+  private hotbarSlots=[...DEFAULT_HOTBAR];
   private gamepadIndex: number | null = null;
   private gamepadButtons = new Set<number>();
   private lastGamepadName = "";
@@ -228,7 +250,6 @@ export class AuroraGame {
     this.scene.add(this.sun.target);
 
     this.playerRig = createPlayerModel(this.toonGradient);
-    this.playerMixer=new THREE.AnimationMixer(this.playerRig.group);this.attackClips=createPlayerAttackClips();
     this.playerVisual = this.playerRig.group;
     this.player.add(this.playerVisual);
     this.scene.add(this.player);
@@ -284,8 +305,11 @@ export class AuroraGame {
       .filter(resource => !this.collectedResources.has(resource.id))
       .map(resource => {const maxHealth=resource.kind==="berry"?1:RESOURCE_HEALTH[resource.kind];return{...resource,object:this.createResourceObject(resource),maxHealth,health:Math.max(1,maxHealth-(this.resourceDamage.get(resource.id)??0)),hitFlash:0,destroying:0};});
     for (const resource of resources) group.add(resource.object);
+    const animals=(faunaForChunk(chunkX,chunkZ,CHUNK_SIZE) as Array<{id:string;kind:AnimalKind;x:number;z:number;heading:number}>)
+      .filter(definition=>!this.defeatedFauna.has(definition.id))
+      .map((definition,index)=>{const stats=FAUNA_STATS[definition.kind],y=terrainHeightAt(definition.x,definition.z),animalGroup=this.createAnimalModel(definition.kind);animalGroup.position.set(definition.x,y,definition.z);animalGroup.rotation.y=definition.heading;this.scene.add(animalGroup);return{...definition,y,homeX:definition.x,homeZ:definition.z,group:animalGroup,health:stats.health,maxHealth:stats.health,provoked:0,attackCooldown:0,wanderTimer:1.2+index*.7,hitFlash:0,deadTimer:0,phase:index*1.9+chunkX*.4+chunkZ*.7};});
     this.scene.add(group);
-    return { group, collider, resources, grass, flowers, chunkX, chunkZ };
+    return { group, collider, resources, animals, grass, flowers, chunkX, chunkZ };
   }
 
   /**
@@ -328,6 +352,24 @@ export class AuroraGame {
     return object;
   }
 
+  private createAnimalModel(kind:AnimalKind){
+    const group=new THREE.Group(),isPredator=kind==="predator";
+    const bodyMaterial=new THREE.MeshToonMaterial({color:isPredator?0x59606a:0xb88a56,gradientMap:this.toonGradient});
+    const lightMaterial=new THREE.MeshToonMaterial({color:isPredator?0x87909a:0xe3c48f,gradientMap:this.toonGradient});
+    const darkMaterial=new THREE.MeshToonMaterial({color:isPredator?0x242b33:0x563925,gradientMap:this.toonGradient});
+    const mesh=(geometry:THREE.BufferGeometry,material:THREE.Material,parent:THREE.Object3D=group)=>{const object=new THREE.Mesh(geometry,material);object.castShadow=true;object.receiveShadow=true;parent.add(object);return object;};
+    const body=mesh(new THREE.SphereGeometry(.72,7,5),bodyMaterial);body.position.y=1.05;body.scale.set(1.18,.72,.72);
+    const neck=mesh(new THREE.CylinderGeometry(.28,.4,.68,6),bodyMaterial);neck.position.set(0,1.38,.58);neck.rotation.x=-.45;
+    const head=mesh(new THREE.SphereGeometry(.43,7,5),lightMaterial);head.position.set(0,1.65,.86);head.scale.set(.78,.72,1.05);
+    const nose=mesh(new THREE.SphereGeometry(.2,6,4),darkMaterial);nose.position.set(0,1.56,1.24);nose.scale.set(.78,.62,1);
+    const legs:THREE.Group[]=[];
+    for(const x of[-.43,.43])for(const z of[-.38,.42]){const pivot=new THREE.Group();pivot.position.set(x,.78,z);const leg=mesh(new THREE.CylinderGeometry(.09,.075,.72,5),darkMaterial,pivot);leg.position.y=-.35;group.add(pivot);legs.push(pivot);}
+    const tailPivot=new THREE.Group();tailPivot.position.set(0,1.22,-.72);const tail=mesh(new THREE.CylinderGeometry(.07,.13,isPredator?.72:.42,5),bodyMaterial,tailPivot);tail.position.z=-(isPredator?.32:.18);tail.rotation.x=Math.PI/2;group.add(tailPivot);
+    if(isPredator){for(const x of[-.2,.2]){const ear=mesh(new THREE.ConeGeometry(.14,.38,4),darkMaterial);ear.position.set(x,2,.72);ear.rotation.x=-.18;}}
+    else{for(const x of[-.22,.22]){const horn=mesh(new THREE.CylinderGeometry(.035,.055,.48,5),darkMaterial);horn.position.set(x,2.03,.75);horn.rotation.z=x<0?-.22:.22;}}
+    group.userData={legs,body,head,tailPivot};group.scale.setScalar(isPredator?.88:1);return group;
+  }
+
   private syncChunks(force = false) {
     const position = this.playerBody?.translation() ?? { x:0, z:0 };
     const centerX = worldToChunk(position.x);
@@ -338,6 +380,7 @@ export class AuroraGame {
       this.scene.remove(chunk.group);
       (chunk.group.children[0] as THREE.Mesh).geometry.dispose();
       chunk.grass?.dispose(); chunk.flowers?.dispose();
+      for(const animal of chunk.animals){this.scene.remove(animal.group);this.disposeGroup(animal.group);}
       this.world.removeCollider(chunk.collider, false);
       this.loadedChunks.delete(key);
     }
@@ -410,9 +453,10 @@ export class AuroraGame {
     const move=forward.multiplyScalar(-my).add(right.multiplyScalar(mx));
     if(move.lengthSq()>.001){move.normalize();if(!this.attackTarget)this.playerVisual.rotation.y=lerpAngle(this.playerVisual.rotation.y,Math.atan2(move.x,move.z),.2);}
     if(this.attackTarget)this.playerVisual.rotation.y=lerpAngle(this.playerVisual.rotation.y,Math.atan2(this.attackTarget.x-this.player.position.x,this.attackTarget.z-this.player.position.z),.35);
-    const sprinting=(this.keys.has("shift")||this.gamepadButtons.has(10))&&move.lengthSq()>.01&&this.hunger>2;
+    const attackMovement=this.attackTime>0 ? .34 : 1;
+    const sprinting=this.attackTime<=0&&(this.keys.has("shift")||this.gamepadButtons.has(10))&&move.lengthSq()>.01&&this.hunger>2;
     const speedScale=sprinting?1.35:.92;
-    const velocity=stepPlanarVelocity({x:this.horizontalVelocity.x,z:this.horizontalVelocity.z},{x:move.x,z:move.z},dt,this.grounded,false,speedScale);
+    const velocity=stepPlanarVelocity({x:this.horizontalVelocity.x,z:this.horizontalVelocity.z},{x:move.x*attackMovement,z:move.z*attackMovement},dt,this.grounded,false,speedScale);
     this.horizontalVelocity.set(velocity.x,0,velocity.z);
     const desired={x:this.horizontalVelocity.x*dt,y:this.verticalVelocity*dt,z:this.horizontalVelocity.z*dt};
     this.character.computeColliderMovement(this.playerCollider,desired,undefined,undefined,collider=>collider!==this.playerCollider);
@@ -423,22 +467,24 @@ export class AuroraGame {
     const position=this.playerBody.translation(); this.player.position.set(position.x,position.y-.93+PLAYER_MODEL_GROUND_OFFSET,position.z);
     const animationTime=performance.now()*.009;
     this.updateEquippedVisual();
-    const attackProgress=this.attackTime>0?1-this.attackTime/.62:0;
-    animatePlayerModel(this.playerRig,animationTime,this.horizontalVelocity.length(),this.grounded,this.verticalVelocity,sprinting);
-    this.playerMixer.update(dt);
-    if(this.attackTarget&&!this.attackImpactDone&&attackProgress>=.54){this.attackImpactDone=true;this.resolveResourceHit(this.attackTarget);}
+    const attacking=this.attackTime>0;
+    const attackProgress=attacking?1-this.attackTime/this.attackDuration:0;
+    animatePlayerModel(this.playerRig,animationTime,this.horizontalVelocity.length(),this.grounded,this.verticalVelocity,sprinting,attacking?{style:this.attackStyle,step:this.comboStep,progress:attackProgress}:null);
+    if(attacking&&!this.attackImpactDone&&attackProgress>=attackImpact(this.attackStyle)){this.attackImpactDone=true;if(this.attackTarget){if(this.isAnimal(this.attackTarget))this.resolveAnimalHit(this.attackTarget);else this.resolveResourceHit(this.attackTarget);}if(this.pendingBuilding)this.resolveBuildingPlacement();}
     this.syncChunks();
+    this.updateAnimals(dt);
     this.updateNearestResource();
+    this.updateNearestAnimal();
     this.updateNearestChest();
     this.updateCampfires(dt);
     this.updateResourceAnimations(dt);this.updateResourceDrops(dt);
     const primaryAction=this.pressed.has("q")||this.consumePad(3);
     if(this.buildingDefinition){this.updateBuildingPreview();if(primaryAction)this.placeBuilding();}
     else{
-      if(this.pressed.has("e")||this.consumePad(2)){if(this.nearestChest)this.interactChest(this.nearestChest);else if(this.nearestResource?.kind==="berry")this.collect(this.nearestResource);else if(this.nearestResource)this.callbacks.onToast("Golpeie o recurso para extrair material");}
-      if(primaryAction){if(this.nearestResource&&this.nearestResource.kind!=="berry")this.attackResource(this.nearestResource);else this.useSelectedItem();}
+      if(this.pressed.has("e")||this.consumePad(2)){if(this.nearestChest)this.interactChest(this.nearestChest);else if(this.nearestResource?.kind==="berry")this.collect(this.nearestResource);else if(this.nearestResource)this.callbacks.onToast("Golpeie o recurso para extrair material");else if(this.rawMeat>0&&this.getWorldState().nearFire)this.cookMeat();}
+      if(primaryAction){if(this.nearestAnimal)this.attackAnimal(this.nearestAnimal);else if(this.nearestResource&&this.nearestResource.kind!=="berry")this.attackResource(this.nearestResource);else this.useSelectedItem();}
     }
-    this.hunger=Math.max(0,this.hunger-dt*(sprinting?.62:.34));
+    this.hunger=Math.max(0,this.hunger-dt*(sprinting?.2:.11));
     const worldState=this.getWorldState();
     if(worldState.isNight&&!this.wasNight)this.callbacks.onToast("A noite chegou — encontre calor");
     if(!worldState.isNight&&this.wasNight){this.survivedNights+=1;this.callbacks.onToast(this.survivedNights===1?"Primeiro amanhecer alcançado!":"Você sobreviveu a mais uma noite");}
@@ -456,6 +502,31 @@ export class AuroraGame {
     let nearest:ResourceObject|null=null; let nearestDistance=2.35;
     for(const chunk of this.loadedChunks.values())for(const resource of chunk.resources){if(!resource.object.visible||resource.destroying>0)continue;const distance=Math.hypot(this.player.position.x-resource.x,this.player.position.z-resource.z);if(distance<nearestDistance){nearest=resource;nearestDistance=distance;}}
     this.nearestResource=nearest;
+  }
+
+  private updateNearestAnimal(){
+    let nearest:AnimalObject|null=null,nearestDistance=this.currentEquipment()==="spear"?3.35:2.2;
+    for(const chunk of this.loadedChunks.values())for(const animal of chunk.animals){if(animal.deadTimer>0||!animal.group.visible)continue;const distance=Math.hypot(this.player.position.x-animal.x,this.player.position.z-animal.z);if(distance<nearestDistance){nearest=animal;nearestDistance=distance;}}
+    this.nearestAnimal=nearest;
+  }
+
+  private isAnimal(target:AttackTarget):target is AnimalObject{return target.kind==="grazer"||target.kind==="predator";}
+
+  private updateAnimals(dt:number){
+    const playerX=this.player.position.x,playerZ=this.player.position.z,time=performance.now()*.001;
+    for(const chunk of this.loadedChunks.values())for(const animal of chunk.animals){
+      if(animal.deadTimer>0){animal.deadTimer-=dt;animal.group.rotation.z=THREE.MathUtils.lerp(animal.group.rotation.z,-Math.PI/2,.12);animal.group.scale.multiplyScalar(Math.max(.82,1-dt*.5));if(animal.deadTimer<=0)animal.group.visible=false;continue;}
+      animal.provoked=Math.max(0,animal.provoked-dt);animal.attackCooldown=Math.max(0,animal.attackCooldown-dt);animal.wanderTimer-=dt;animal.hitFlash=Math.max(0,animal.hitFlash-dt);
+      const dx=playerX-animal.x,dz=playerZ-animal.z,distance=Math.hypot(dx,dz),intent=faunaIntent(animal.kind,distance,animal.provoked>0);
+      let directionX=Math.sin(animal.heading),directionZ=Math.cos(animal.heading),speed=.45;
+      if(intent==="flee"){directionX=-dx/Math.max(.01,distance);directionZ=-dz/Math.max(.01,distance);speed=FAUNA_STATS[animal.kind].speed;}
+      else if(intent==="chase"||intent==="attack"){directionX=dx/Math.max(.01,distance);directionZ=dz/Math.max(.01,distance);speed=intent==="attack"?0:FAUNA_STATS[animal.kind].speed;}
+      else if(animal.wanderTimer<=0){const homeAngle=Math.atan2(animal.homeX-animal.x,animal.homeZ-animal.z),farHome=Math.hypot(animal.x-animal.homeX,animal.z-animal.homeZ)>10;animal.heading=farHome?homeAngle:animal.heading+Math.sin(animal.phase+time*.37)*1.7;animal.wanderTimer=1.8+(Math.sin(animal.phase*4.1)+1)*1.2;directionX=Math.sin(animal.heading);directionZ=Math.cos(animal.heading);}
+      if(intent==="attack"&&animal.attackCooldown<=0){animal.attackCooldown=1.15;this.health=Math.max(0,this.health-FAUNA_STATS[animal.kind].damage);this.hurtCooldown=.55;this.callbacks.onDamage();this.callbacks.onToast("O lobo atacou você");this.pulse(.72,145);}
+      animal.x+=directionX*speed*dt;animal.z+=directionZ*speed*dt;animal.y=terrainHeightAt(animal.x,animal.z);animal.heading=lerpAngle(animal.heading,Math.atan2(directionX,directionZ),.13);animal.group.position.set(animal.x,animal.y,animal.z);animal.group.rotation.y=animal.heading;
+      const rig=animal.group.userData,pace=time*(speed>2?9:3.2)+animal.phase;for(let index=0;index<rig.legs.length;index+=1)rig.legs[index].rotation.x=Math.sin(pace+(index%2?Math.PI:0))*(speed>2?.62:.18);rig.body.position.y=1.05+Math.sin(pace*2)*.035;rig.head.rotation.x=intent==="attack"?-.35:Math.sin(time*.8+animal.phase)*.07;rig.tailPivot.rotation.y=Math.sin(time*5+animal.phase)*.35;
+      animal.group.traverse(object=>{if(object instanceof THREE.Mesh)(object.material as THREE.MeshToonMaterial).emissive?.setHex(animal.hitFlash>0?0x7b1717:0x000000);});
+    }
   }
 
   private updateNearestChest(){
@@ -476,14 +547,15 @@ export class AuroraGame {
   }
 
   private currentEquipment(){
-    if(this.selectedSlot===2&&this.axeDurability>0)return"axe" as const;
-    if(this.selectedSlot===3&&this.pickaxeDurability>0)return"pickaxe" as const;
-    if(this.selectedSlot===7&&this.hammer)return"hammer" as const;
-    if(this.selectedSlot===8&&this.spearDurability>0)return"spear" as const;
+    const item=this.hotbarSlots[this.selectedSlot];
+    if(item==="axe"&&this.axeDurability>0)return"axe" as const;
+    if(item==="pickaxe"&&this.pickaxeDurability>0)return"pickaxe" as const;
+    if(item==="hammer"&&this.hammer)return"hammer" as const;
+    if(item==="spear"&&this.spearDurability>0)return"spear" as const;
     return"hands" as const;
   }
 
-  private updateEquippedVisual(){const equipped=this.currentEquipment();if(equipped===this.equippedVisual)return;this.equippedVisual=equipped;setPlayerEquipment(this.playerRig,equipped);}
+  private updateEquippedVisual(){const comboHolding=this.attackTime>0||this.comboResetTimer>0||this.comboBuffered>0;const equipped=comboHolding?this.attackEquipment:this.currentEquipment();if(equipped===this.equippedVisual)return;this.equippedVisual=equipped;setPlayerEquipment(this.playerRig,equipped);}
 
   private updateAttackState(dt:number){
     const wasAttacking=this.attackTime>0;this.attackTime=Math.max(0,this.attackTime-dt);
@@ -493,15 +565,19 @@ export class AuroraGame {
     }else if(this.attackTime<=0&&this.comboResetTimer>0){this.comboResetTimer=Math.max(0,this.comboResetTimer-dt);if(this.comboResetTimer<=0){this.comboStep=0;this.comboBuffered=0;this.attackTarget=null;}}
   }
 
-  private beginComboStep(step:number,target:ResourceObject|null){
-    this.comboStep=step;this.attackTime=.62;this.comboResetTimer=0;this.attackTarget=target;this.attackImpactDone=false;
-    this.attackAction?.stop();const equipped=this.currentEquipment(),set=equipped==="spear"||equipped==="hands"?this.attackClips.thrust:this.attackClips.chop,clip=set[Math.max(0,Math.min(2,step-1))];
-    this.attackAction=this.playerMixer.clipAction(clip);this.attackAction.reset().setLoop(THREE.LoopOnce,1);this.attackAction.clampWhenFinished=false;this.attackAction.fadeIn(.035).play();
+  private beginComboStep(step:number,target:AttackTarget|null){
+    this.attackStyle=attackStyleFor(this.attackEquipment);
+    this.attackDuration=attackDuration(this.attackStyle,step);
+    this.comboStep=step;this.attackTime=this.attackDuration;this.comboResetTimer=0;this.attackTarget=target;this.attackImpactDone=false;
   }
 
-  private startAttack(target:ResourceObject|null=null){
+  private startAttack(target:AttackTarget|null=null){
     const next=requestCombo({step:this.comboStep,buffered:this.comboBuffered,active:this.attackTime>0,windowOpen:this.comboResetTimer>0});this.comboStep=next.step;this.comboBuffered=next.buffered;
-    if(target)this.attackTarget=target;if(next.startStep)this.beginComboStep(next.startStep,target??this.attackTarget);return true;
+    if(target)this.attackTarget=target;if(next.startStep){this.attackEquipment=attackEquipmentForStep(this.currentEquipment(),this.attackEquipment,next.startStep);this.beginComboStep(next.startStep,target??this.attackTarget);}return true;
+  }
+
+  private startToolUse(equipment:Equipment){
+    this.attackTime=0;this.comboStep=0;this.comboBuffered=0;this.comboResetTimer=0;this.attackTarget=null;this.attackEquipment=equipment;this.beginComboStep(1,null);
   }
 
   private attackResource(resource:ResourceObject){
@@ -509,9 +585,28 @@ export class AuroraGame {
     this.playerVisual.rotation.y=Math.atan2(resource.x-this.player.position.x,resource.z-this.player.position.z);
   }
 
+  private attackAnimal(animal:AnimalObject){
+    if(!this.startAttack(animal))return;
+    animal.provoked=8;this.playerVisual.rotation.y=Math.atan2(animal.x-this.player.position.x,animal.z-this.player.position.z);
+  }
+
+  private resolveAnimalHit(animal:AnimalObject){
+    if(animal.deadTimer>0||!animal.group.visible)return;
+    const distance=Math.hypot(this.player.position.x-animal.x,this.player.position.z-animal.z),range=this.attackEquipment==="spear"?3.65:2.45;if(distance>range)return;
+    const damage=faunaHitDamage(this.attackEquipment,this.comboStep);animal.health=Math.max(0,animal.health-damage);animal.hitFlash=.18;animal.provoked=10;
+    if(this.attackEquipment==="spear")this.spearDurability=Math.max(0,this.spearDurability-1);
+    if(animal.health<=0){const meat=FAUNA_STATS[animal.kind].meat;animal.deadTimer=.85;this.defeatedFauna.add(animal.id);this.rawMeat+=meat;this.nearestAnimal=null;this.attackTarget=null;this.spawnMeatDrops(animal,meat);this.callbacks.onToast(`${FAUNA_STATS[animal.kind].name} abatido · carne crua +${meat}`);this.pulse(.65,130);}
+    else{this.callbacks.onToast(`${FAUNA_STATS[animal.kind].name} · ${animal.health}/${animal.maxHealth}`);this.pulse(this.attackEquipment==="spear"?.48:.3,90);}
+    this.saveGame();this.emitSnapshot();
+  }
+
+  private spawnMeatDrops(animal:AnimalObject,amount:number){
+    for(let index=0;index<amount;index+=1){const mesh=new THREE.Mesh(new THREE.SphereGeometry(.18,6,4),new THREE.MeshToonMaterial({color:0xb44743,gradientMap:this.toonGradient}));mesh.scale.set(1.25,.65,.9);mesh.position.set(animal.x,animal.y+.85,animal.z);this.scene.add(mesh);this.resourceDrops.push({mesh,velocity:new THREE.Vector3((index-(amount-1)/2)*1.1,2.6,index%2?.8:-.8),life:.85});}
+  }
+
   private resolveResourceHit(resource:ResourceObject){
     if(resource.destroying>0||!resource.object.visible||Math.hypot(this.player.position.x-resource.x,this.player.position.z-resource.z)>2.8)return;
-    const equipped=this.currentEquipment();const result=harvestHit(resource.kind,resource.health,equipped);
+    const equipped=this.attackEquipment;const result=harvestHit(resource.kind,resource.health,equipped);
     resource.health=result.remaining;resource.hitFlash=.24;this.resourceDamage.set(resource.id,resource.maxHealth-resource.health);
     if(resource.kind==="wood")this.wood+=result.drop;else this.stone+=result.drop;
     if(result.durabilityCost&&equipped==="axe")this.axeDurability=Math.max(0,this.axeDurability-result.durabilityCost);
@@ -546,15 +641,27 @@ export class AuroraGame {
     this.berries-=1; this.hunger=Math.min(100,this.hunger+24); this.callbacks.onToast("Fome restaurada"); this.pulse(.16,45); this.emitSnapshot();
   }
 
+  private eatProvisions(){
+    if(this.cookedMeat>0){if(this.hunger>=99&&this.health>=99){this.callbacks.onToast("Você já está saciado");return;}this.cookedMeat-=1;this.hunger=Math.min(100,this.hunger+42);this.health=Math.min(100,this.health+8);this.callbacks.onToast("Carne assada consumida · fome e vida restauradas");this.pulse(.2,55);this.saveGame();this.emitSnapshot();return;}
+    this.eatBerry();
+  }
+
+  private cookMeat(){
+    if(this.rawMeat<=0)return;this.rawMeat-=1;this.cookedMeat+=1;this.callbacks.onToast("Carne assada na fogueira");this.pulse(.22,65);this.saveGame();this.emitSnapshot();
+  }
+
   private useSelectedItem() {
-    if(this.selectedSlot===1){this.eatBerry();return;}
-    if(this.selectedSlot===0){this.startAttack();return;}
-    if(this.selectedSlot===2){if(this.axeDurability>0)this.startAttack();else this.callbacks.onToast("Fabrique um machado no inventário");return;}
-    if(this.selectedSlot===3){if(this.pickaxeDurability>0)this.startAttack();else this.callbacks.onToast("Fabrique uma picareta no inventário");return;}
-    if(this.selectedSlot===4){this.placeCampfire();return;}
-    if(this.selectedSlot===5||this.selectedSlot===6){this.callbacks.onToast("Abra o inventário para fabricar");return;}
-    if(this.selectedSlot===7){if(this.hammer)this.callbacks.onBuildMenu();else this.callbacks.onToast("Fabrique um martelo no inventário");return;}
-    if(this.selectedSlot===8){if(this.spearDurability>0)this.startAttack();else this.callbacks.onToast("Fabrique uma lança no inventário");return;}
+    const item=this.hotbarSlots[this.selectedSlot];
+    if(item==="provisions"){this.eatProvisions();return;}
+    if(item==="hands"){this.startAttack();return;}
+    if(item==="axe"){if(this.axeDurability>0)this.startAttack();else this.callbacks.onToast("Fabrique um machado no inventário");return;}
+    if(item==="pickaxe"){if(this.pickaxeDurability>0)this.startAttack();else this.callbacks.onToast("Fabrique uma picareta no inventário");return;}
+    if(item==="campfire"){this.placeCampfire();return;}
+    if(item==="wood"||item==="stone"){this.callbacks.onToast("Abra o inventário para fabricar");return;}
+    if(item==="rawMeat"){this.callbacks.onToast("Asse a carne perto de uma fogueira");return;}
+    if(item==="hammer"){if(this.hammer)this.callbacks.onBuildMenu();else this.callbacks.onToast("Fabrique um martelo no inventário");return;}
+    if(item==="spear"){if(this.spearDurability>0)this.startAttack();else this.callbacks.onToast("Fabrique uma lança no inventário");return;}
+    this.callbacks.onToast("Atalho vazio — organize-o no inventário");
   }
 
   craft(recipeId:string){
@@ -591,10 +698,10 @@ export class AuroraGame {
     try{
       const raw=window.localStorage.getItem(SAVE_KEY);if(!raw)return false;
       const save=normalizeSave(JSON.parse(raw));if(!save)return false;
-      this.health=save.health;this.hunger=save.hunger;this.berries=save.berries;this.wood=save.wood;this.stone=save.stone;
+      this.health=save.health;this.hunger=save.hunger;this.berries=save.berries;this.rawMeat=save.rawMeat;this.cookedMeat=save.cookedMeat;this.wood=save.wood;this.stone=save.stone;
       this.axeDurability=save.axeDurability;this.pickaxeDurability=save.pickaxeDurability;this.spearDurability=save.spearDurability;this.hammer=save.hammer;
-      this.campfireKits=save.campfireKits;this.survivalTime=save.survivalTime;this.survivedNights=save.survivedNights;this.selectedSlot=save.selectedSlot;
-      this.collectedResources=new Set(save.collectedResources);this.resourceDamage=new Map(Object.entries(save.resourceDamage));this.pendingCampfires=save.campfires;this.pendingStructures=save.structures;
+      this.campfireKits=save.campfireKits;this.survivalTime=save.survivalTime;this.survivedNights=save.survivedNights;this.selectedSlot=save.selectedSlot;this.hotbarSlots=normalizeHotbarSlots(save.hotbarSlots);
+      this.collectedResources=new Set(save.collectedResources);this.defeatedFauna=new Set(save.defeatedFauna);this.resourceDamage=new Map(Object.entries(save.resourceDamage));this.pendingCampfires=save.campfires;this.pendingStructures=save.structures;
       this.spawnPosition.set(save.position.x,save.position.y,save.position.z);
       this.respawnPosition=save.respawn?new THREE.Vector3(save.respawn.x,save.respawn.y,save.respawn.z):null;
       return true;
@@ -612,9 +719,9 @@ export class AuroraGame {
     const position=this.playerBody.translation();
     try{window.localStorage.setItem(SAVE_KEY,JSON.stringify({
       version:SAVE_VERSION,position:{x:position.x,y:position.y,z:position.z},health:this.health,hunger:this.hunger,
-      berries:this.berries,wood:this.wood,stone:this.stone,axeDurability:this.axeDurability,pickaxeDurability:this.pickaxeDurability,spearDurability:this.spearDurability,
-      hammer:this.hammer,campfireKits:this.campfireKits,survivalTime:this.survivalTime,survivedNights:this.survivedNights,selectedSlot:this.selectedSlot,
-      collectedResources:[...this.collectedResources],resourceDamage:Object.fromEntries(this.resourceDamage),campfires:this.campfires.map(fire=>({x:fire.position.x,y:fire.position.y,z:fire.position.z})),
+      berries:this.berries,rawMeat:this.rawMeat,cookedMeat:this.cookedMeat,wood:this.wood,stone:this.stone,axeDurability:this.axeDurability,pickaxeDurability:this.pickaxeDurability,spearDurability:this.spearDurability,
+      hammer:this.hammer,campfireKits:this.campfireKits,survivalTime:this.survivalTime,survivedNights:this.survivedNights,selectedSlot:this.selectedSlot,hotbarSlots:this.hotbarSlots,
+      collectedResources:[...this.collectedResources],defeatedFauna:[...this.defeatedFauna],resourceDamage:Object.fromEntries(this.resourceDamage),campfires:this.campfires.map(fire=>({x:fire.position.x,y:fire.position.y,z:fire.position.z})),
       structures:this.structures.map(structure=>({id:structure.id,x:structure.position.x,y:structure.position.y,z:structure.position.z,rotation:structure.rotation,storage:structure.storage})),
       respawn:this.respawnPosition?{x:this.respawnPosition.x,y:this.respawnPosition.y,z:this.respawnPosition.z}:null,
     }));}catch{/* localStorage may be unavailable */}
@@ -630,7 +737,7 @@ export class AuroraGame {
 
   private cancelBuilding(notify=true){
     if(this.buildingGhost){this.scene.remove(this.buildingGhost);this.disposeGroup(this.buildingGhost);}
-    this.buildingGhost=null;this.buildingDefinition=null;this.buildingValid=false;if(notify)this.callbacks.onToast("Construção cancelada");this.emitSnapshot();
+    this.buildingGhost=null;this.buildingDefinition=null;this.buildingValid=false;this.buildingSnap="";this.buildingIssue="";this.buildingSnapKey="";this.pendingBuilding=null;if(notify)this.callbacks.onToast("Construção cancelada");this.emitSnapshot();
   }
 
   private rotateBuilding(){this.buildingRotation=(this.buildingRotation+Math.PI/2)%(Math.PI*2);this.updateBuildingPreview();this.pulse(.08,30);}
@@ -638,24 +745,37 @@ export class AuroraGame {
   private updateBuildingPreview(){
     if(!this.buildingDefinition||!this.buildingGhost||!this.playerBody)return;
     const player=this.playerBody.translation(),facing=this.playerVisual.rotation.y;
-    const x=snapToGrid(player.x+Math.sin(facing)*3.1),z=snapToGrid(player.z+Math.cos(facing)*3.1),y=terrainHeightAt(x,z);
-    this.buildingGhost.position.set(x,y,z);this.buildingGhost.rotation.y=this.buildingRotation;
-    const quarter=Math.round(this.buildingRotation/(Math.PI/2))%2;const [baseWidth,,baseDepth]=this.buildingDefinition.size;
+    const freeX=snapToGrid(player.x+Math.sin(facing)*3.1),freeZ=snapToGrid(player.z+Math.cos(facing)*3.1),freeY=terrainHeightAt(freeX,freeZ);
+    const structures=this.structures.map(structure=>({id:structure.id,x:structure.position.x,y:structure.position.y,z:structure.position.z,rotation:structure.rotation}));
+    const snap=findBuildingSnap(this.buildingDefinition.id,{x:freeX,y:freeY,z:freeZ,rotation:this.buildingRotation},structures);
+    const x=snap?.x??freeX,y=snap?.y??freeY,z=snap?.z??freeZ,rotation=snap?.rotation??this.buildingRotation;
+    this.buildingGhost.position.set(x,y,z);this.buildingGhost.rotation.y=rotation;
+    this.buildingSnap=snap?.label??"";
+    const snapKey=snap?`${snap.kind}:${x.toFixed(2)}:${y.toFixed(2)}:${z.toFixed(2)}`:"";
+    if(snapKey&&snapKey!==this.buildingSnapKey)this.pulse(.055,24);
+    this.buildingSnapKey=snapKey;
+    const quarter=Math.round(rotation/(Math.PI/2))%2;const [baseWidth,,baseDepth]=this.buildingDefinition.size;
     const width=quarter?baseDepth:baseWidth,depth=quarter?baseWidth:baseDepth;
-    const overlap=this.structures.some(structure=>{
-      if(structure.id!==this.buildingDefinition?.id)return false;
-      const otherQuarter=Math.round(structure.rotation/(Math.PI/2))%2;const [otherWidth,,otherDepth]=structure.definition.size;
-      return footprintsOverlap({x,z,width,depth},{x:structure.position.x,z:structure.position.z,width:otherQuarter?otherDepth:otherWidth,depth:otherQuarter?otherWidth:otherDepth});
-    });
+    const overlap=buildingPlacementBlocked({id:this.buildingDefinition.id,x,y,z,rotation},structures);
     const slope=Math.max(Math.abs(y-terrainHeightAt(x+width*.45,z)),Math.abs(y-terrainHeightAt(x,z+depth*.45)));
-    this.buildingValid=canBuild(this.buildingDefinition,{wood:this.wood,stone:this.stone})&&!overlap&&slope<1.1;
+    const hasMaterials=canBuild(this.buildingDefinition,{wood:this.wood,stone:this.stone});
+    const missing=[];if(this.wood<this.buildingDefinition.cost.wood)missing.push(`madeira ${this.wood}/${this.buildingDefinition.cost.wood}`);if(this.stone<this.buildingDefinition.cost.stone)missing.push(`pedra ${this.stone}/${this.buildingDefinition.cost.stone}`);
+    this.buildingIssue=!hasMaterials?`Materiais insuficientes · ${missing.join(" · ")}`:overlap?"Espaço ocupado":!snap&&slope>=1.1?"Terreno inclinado":"";
+    this.buildingValid=hasMaterials&&!overlap&&(Boolean(snap)||slope<1.1);
     this.tintGhost(this.buildingGhost,this.buildingValid?0x69e6a0:0xff6b62);
   }
 
   private placeBuilding(){
     if(!this.buildingDefinition||!this.buildingGhost)return;
-    if(!this.buildingValid){this.callbacks.onToast("Local inválido ou materiais insuficientes");this.pulse(.22,70);return;}
-    const definition=this.buildingDefinition,position=this.buildingGhost.position.clone(),rotation=this.buildingRotation;
+    if(!this.buildingValid){this.callbacks.onToast(this.buildingIssue||"Não é possível construir aqui");this.pulse(.22,70);return;}
+    if(this.attackTime>0||this.pendingBuilding)return;
+    this.pendingBuilding={definition:this.buildingDefinition,position:this.buildingGhost.position.clone(),rotation:this.buildingGhost.rotation.y};
+    this.startToolUse("hammer");
+  }
+
+  private resolveBuildingPlacement(){
+    if(!this.pendingBuilding)return;
+    const {definition,position,rotation}=this.pendingBuilding;this.pendingBuilding=null;
     this.wood-=definition.cost.wood;this.stone-=definition.cost.stone;this.addStructure(definition,position,rotation);
     if(definition.id==="bed"){this.respawnPosition=new THREE.Vector3(position.x,position.y+1.6,position.z);this.callbacks.onToast("Cama pronta — ponto de retorno definido");}
     else this.callbacks.onToast(`${definition.name} construída`);
@@ -706,12 +826,11 @@ export class AuroraGame {
   }
 
   private getWorldState(){
-    const fraction=(this.survivalTime/180+.3)%1;const isNight=fraction<.22||fraction>.78;
+    const clock=worldTimeAt(this.survivalTime),{fraction,isNight}=clock;
     const position=this.playerBody?.translation()??{x:0,y:0,z:0};const nearFire=this.campfires.some(fire=>Math.hypot(position.x-fire.position.x,position.z-fire.position.z)<6);
     const sheltered=this.structures.some(structure=>structure.id==="roof"&&Math.abs(position.x-structure.position.x)<2.15&&Math.abs(position.z-structure.position.z)<2.15&&position.y<structure.position.y+3.2);
     const terrain=terrainHeightAt(position.x,position.z);const temperature=Math.round(nearFire?23:(isNight?(sheltered?9:3):18)-Math.max(0,terrain-2)*.45);
-    const totalMinutes=Math.floor(fraction*24*60);const hours=String(Math.floor(totalMinutes/60)).padStart(2,"0"),minutes=String(totalMinutes%60).padStart(2,"0");
-    return{fraction,isNight,nearFire,sheltered,temperature,timeLabel:`${hours}:${minutes}`};
+    return{fraction,isNight,nearFire,sheltered,temperature,timeLabel:clock.timeLabel};
   }
 
   private updateCamera(dt:number) {
@@ -761,15 +880,16 @@ export class AuroraGame {
 
   private emitSnapshot() {
     const position=this.playerBody?.translation()??{x:0,y:0,z:0};
-    const interaction=this.nearestChest?`${this.lastGamepadName?"□":"E"} · Guardar ou retirar recursos`:this.nearestResource?this.nearestResource.kind==="berry"?`${this.lastGamepadName?"□":"E"} · Coletar frutos`:`${this.lastGamepadName?"△":"Q"} · Golpear ${this.nearestResource.kind==="wood"?"árvore":"rocha"} · ${this.nearestResource.health}/${this.nearestResource.maxHealth}`:"";const worldState=this.getWorldState();
+    const worldState=this.getWorldState();
+    const interaction=this.nearestAnimal?`${this.lastGamepadName?"△":"Q"} · Atacar ${FAUNA_STATS[this.nearestAnimal.kind].name} · ${this.nearestAnimal.health}/${this.nearestAnimal.maxHealth}`:this.nearestChest?`${this.lastGamepadName?"□":"E"} · Guardar ou retirar recursos`:this.nearestResource?this.nearestResource.kind==="berry"?`${this.lastGamepadName?"□":"E"} · Coletar frutos`:`${this.lastGamepadName?"△":"Q"} · Golpear ${this.nearestResource.kind==="wood"?"árvore":"rocha"} · ${this.nearestResource.health}/${this.nearestResource.maxHealth}`:this.rawMeat>0&&worldState.nearFire?`${this.lastGamepadName?"□":"E"} · Assar carne crua`:"";
     const height=terrainHeightAt(position.x,position.z);
-    this.callbacks.onSnapshot({health:Math.round(this.health),hunger:Math.round(this.hunger),berries:this.berries,wood:this.wood,stone:this.stone,distance:Math.round(Math.hypot(position.x,position.z)),chunks:this.loadedChunks.size,biome:height>2.6?"Terras Altas":height<-1.8?"Vale Nebuloso":"Campos de Aurora",interaction,selectedSlot:this.selectedSlot,axeDurability:this.axeDurability,pickaxeDurability:this.pickaxeDurability,spearDurability:this.spearDurability,campfireKits:this.campfireKits,timeLabel:worldState.timeLabel,isNight:worldState.isNight,temperature:worldState.temperature,nearFire:worldState.nearFire,survivedNights:this.survivedNights,hammer:this.hammer,buildingPiece:this.buildingDefinition?.name??"",buildingValid:this.buildingValid,sheltered:worldState.sheltered,comboStep:this.comboStep,comboBuffered:this.comboBuffered,gamepad:this.lastGamepadName});
+    this.callbacks.onSnapshot({health:Math.round(this.health),hunger:Math.round(this.hunger),berries:this.berries,rawMeat:this.rawMeat,cookedMeat:this.cookedMeat,wood:this.wood,stone:this.stone,distance:Math.round(Math.hypot(position.x,position.z)),chunks:this.loadedChunks.size,biome:height>2.6?"Terras Altas":height<-1.8?"Vale Nebuloso":"Campos de Aurora",interaction,selectedSlot:this.selectedSlot,hotbarSlots:[...this.hotbarSlots],axeDurability:this.axeDurability,pickaxeDurability:this.pickaxeDurability,spearDurability:this.spearDurability,campfireKits:this.campfireKits,timeLabel:worldState.timeLabel,isNight:worldState.isNight,temperature:worldState.temperature,nearFire:worldState.nearFire,survivedNights:this.survivedNights,hammer:this.hammer,buildingPiece:this.buildingDefinition?.name??"",buildingValid:this.buildingValid,buildingSnap:this.buildingSnap,buildingIssue:this.buildingIssue,sheltered:worldState.sheltered,comboStep:this.comboStep,comboBuffered:this.comboBuffered,gamepad:this.lastGamepadName});
   }
 
   reset() {
     if(!this.world)return;
-    this.health=EMPTY_SNAPSHOT.health; this.hunger=EMPTY_SNAPSHOT.hunger; this.berries=0; this.wood=0; this.stone=0;this.axeDurability=0;this.pickaxeDurability=0;this.spearDurability=0;this.campfireKits=0;this.hammer=false;this.survivalTime=0;this.wasNight=false;this.survivedNights=0;this.respawnPosition=null;
-    this.verticalVelocity=0; this.horizontalVelocity.set(0,0,0); this.grounded=false;this.attackTime=0;this.comboStep=0;this.comboBuffered=0;this.comboResetTimer=0;this.attackTarget=null;this.collectedResources.clear();this.resourceDamage.clear();
+    this.health=EMPTY_SNAPSHOT.health; this.hunger=EMPTY_SNAPSHOT.hunger; this.berries=0;this.rawMeat=0;this.cookedMeat=0; this.wood=0; this.stone=0;this.axeDurability=0;this.pickaxeDurability=0;this.spearDurability=0;this.campfireKits=0;this.hammer=false;this.survivalTime=0;this.wasNight=false;this.survivedNights=0;this.respawnPosition=null;this.hotbarSlots=[...DEFAULT_HOTBAR];
+    this.verticalVelocity=0; this.horizontalVelocity.set(0,0,0); this.grounded=false;this.attackTime=0;this.attackEquipment="hands";this.comboStep=0;this.comboBuffered=0;this.comboResetTimer=0;this.attackTarget=null;this.pendingBuilding=null;this.collectedResources.clear();this.defeatedFauna.clear();this.resourceDamage.clear();
     const y=terrainHeightAt(0,0)+2.2; this.playerBody.setTranslation({x:0,y,z:0},true); this.playerBody.setNextKinematicTranslation({x:0,y,z:0}); this.player.position.set(0,y-.93+PLAYER_MODEL_GROUND_OFFSET,0);
     this.grassTrail.set(0,y,0);
     this.emitSnapshot();
@@ -777,6 +897,7 @@ export class AuroraGame {
 
   setPaused(value:boolean){this.paused=value;if(!value)this.clock.getDelta();}
   selectHotbarSlot(index:number,haptic=false){const next=(index+9)%9;if(next===this.selectedSlot)return;this.selectedSlot=next;if(haptic)this.pulse(.1,28);this.emitSnapshot();}
+  setHotbarSlot(index:number,itemId:string){const next=assignHotbarItem(this.hotbarSlots,index,itemId);if(next.every((item,slot)=>item===this.hotbarSlots[slot]))return;this.hotbarSlots=next;this.selectedSlot=index;this.pulse(.12,38);this.saveGame();this.emitSnapshot();}
   applySettings(settings:GameSettings){const grassChanged=this.settings?.grassAmount!==settings.grassAmount;this.settings=settings;if(!this.renderer)return;const ratio=settings.quality==="high"?Math.min(devicePixelRatio,2):settings.quality==="medium"?Math.min(devicePixelRatio,1.5):1;this.renderer.setPixelRatio(ratio);this.renderer.shadowMap.enabled=settings.shadows;this.bloom.enabled=settings.bloom;if(grassChanged)this.rebuildGrass();this.resize();}
   private updateGamepad(){if(!this.settings?.gamepadEnabled)return;const pads=navigator.getGamepads?.()??[];let pad=this.gamepadIndex===null?null:pads[this.gamepadIndex];if(!pad?.connected)pad=Array.from(pads).find(Boolean)??null;this.gamepadIndex=pad?.index??null;const next=new Set<number>();pad?.buttons.forEach((button,index)=>{if(button.pressed||button.value>.55)next.add(index)});for(const index of next)if(!this.gamepadButtons.has(index))this.pressed.add(`pad-${index}`);this.gamepadButtons=next;const name=pad?(/dualsense|wireless controller/i.test(pad.id)?"DualSense conectado":`${pad.id.slice(0,22)} conectado`):"";if(name!==this.lastGamepadName){this.lastGamepadName=name;this.emitSnapshot();}}
   private getPad(){return this.gamepadIndex===null?null:navigator.getGamepads?.()[this.gamepadIndex]??null;}
@@ -785,7 +906,7 @@ export class AuroraGame {
   private pulse(strength:number,duration:number){if(!this.settings.gamepadEnabled||this.settings.vibration<=0)return;const pad=this.getPad() as (Gamepad&{vibrationActuator?:{playEffect?:(type:string,options:Record<string,number>)=>Promise<unknown>}})|null;const actuator=pad?.vibrationActuator;if(!actuator?.playEffect)return;const magnitude=Math.min(1,strength*this.settings.vibration);void actuator.playEffect("dual-rumble",{duration,startDelay:0,strongMagnitude:magnitude,weakMagnitude:magnitude*.65}).catch(()=>undefined);}
   testVibration(){this.pulse(1,220);}
   private resize(){if(!this.renderer)return;const width=this.canvas.clientWidth||innerWidth,height=this.canvas.clientHeight||innerHeight;this.camera.aspect=width/height;this.camera.updateProjectionMatrix();this.renderer.setSize(width,height,false);this.composer.setSize(width,height);}
-  destroy(){if(this.initialized)this.saveGame();this.destroyed=true;cancelAnimationFrame(this.frame);this.listeners.forEach(listener=>listener());for(const chunk of this.loadedChunks.values()){this.world?.removeCollider(chunk.collider,false);chunk.grass?.dispose();chunk.flowers?.dispose();}this.terrainMaterial.dispose();this.grassGeometry.dispose();this.flowerGeometry.dispose();this.grassMaterial.dispose();disposeFoliageAssets(this.foliage);this.sky.dome.geometry.dispose();(this.sky.dome.material as THREE.Material).dispose();this.sky.range.children.forEach(child=>(child as THREE.Mesh).geometry.dispose());this.sky.rangeMaterials.forEach(material=>material.dispose());this.sky.sun.geometry.dispose();this.sky.sunMaterial.dispose();this.playerMixer?.stopAllAction();if(this.playerRig)this.playerMixer?.uncacheRoot(this.playerRig.group);this.renderer?.dispose();this.composer?.dispose();if(this.world&&this.character)this.world.removeCharacterController(this.character);}
+  destroy(){if(this.initialized)this.saveGame();this.destroyed=true;cancelAnimationFrame(this.frame);this.listeners.forEach(listener=>listener());for(const chunk of this.loadedChunks.values()){this.world?.removeCollider(chunk.collider,false);chunk.grass?.dispose();chunk.flowers?.dispose();for(const animal of chunk.animals)this.disposeGroup(animal.group);}this.terrainMaterial.dispose();this.grassGeometry.dispose();this.flowerGeometry.dispose();this.grassMaterial.dispose();disposeFoliageAssets(this.foliage);this.sky.dome.geometry.dispose();(this.sky.dome.material as THREE.Material).dispose();this.sky.range.children.forEach(child=>(child as THREE.Mesh).geometry.dispose());this.sky.rangeMaterials.forEach(material=>material.dispose());this.sky.sun.geometry.dispose();this.sky.sunMaterial.dispose();this.renderer?.dispose();this.composer?.dispose();if(this.world&&this.character)this.world.removeCharacterController(this.character);}
 }
 
 export { WORLD_SEED };
