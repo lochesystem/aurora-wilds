@@ -1,10 +1,13 @@
 export const BUILDING_PIECES = [
-  {id:"foundation",name:"Fundação",description:"Base plana para o abrigo.",cost:{wood:3,stone:1},size:[3,.28,3],yOffset:.14,shelter:false},
-  {id:"wall",name:"Parede",description:"Fecha uma lateral do abrigo.",cost:{wood:3,stone:0},size:[3,2.7,.22],yOffset:1.35,shelter:false},
-  {id:"door",name:"Portal",description:"Entrada aberta para o acampamento.",cost:{wood:4,stone:0},size:[3,2.7,.22],yOffset:1.35,shelter:false},
-  {id:"roof",name:"Telhado",description:"Protege uma área contra o frio.",cost:{wood:4,stone:0},size:[3.3,.25,3.3],yOffset:2.78,shelter:true},
-  {id:"chest",name:"Baú",description:"Guarda e devolve recursos coletados.",cost:{wood:4,stone:1},size:[1.25,.8,.75],yOffset:.4,shelter:false},
-  {id:"bed",name:"Cama",description:"Define o ponto de retorno da expedição.",cost:{wood:3,stone:0},size:[1.2,.35,2.2],yOffset:.18,shelter:false},
+  {id:"foundation",name:"Fundação",description:"Base plana para o abrigo.",cost:{wood:3,stone:1},size:[3,.28,3],yOffset:.14,shelter:false,health:180,support:"ground"},
+  {id:"wall",name:"Parede",description:"Fecha uma lateral do abrigo.",cost:{wood:3,stone:0},size:[3,2.7,.22],yOffset:1.35,shelter:false,health:120,support:"foundation"},
+  {id:"door",name:"Porta",description:"Abre, fecha e protege a entrada.",cost:{wood:4,stone:0},size:[3,2.7,.22],yOffset:1.35,shelter:false,health:110,support:"foundation"},
+  {id:"roof",name:"Telhado",description:"Cobertura plana modular.",cost:{wood:4,stone:0},size:[3.3,.25,3.3],yOffset:2.78,shelter:true,health:100,support:"wall"},
+  {id:"slopedRoof",name:"Telhado inclinado",description:"Cobertura inclinada para fechar o abrigo.",cost:{wood:4,stone:0},size:[3.3,.3,3.3],yOffset:2.45,shelter:true,health:105,support:"wall"},
+  {id:"stairs",name:"Escada",description:"Liga dois níveis da construção.",cost:{wood:4,stone:0},size:[1.4,1.5,3],yOffset:.75,shelter:false,health:110,support:"ground"},
+  {id:"ramp",name:"Rampa",description:"Acesso inclinado largo para a fundação.",cost:{wood:4,stone:1},size:[3,.3,3],yOffset:.15,shelter:false,health:140,support:"ground"},
+  {id:"chest",name:"Baú",description:"Guarda e devolve recursos coletados.",cost:{wood:4,stone:1},size:[1.25,.8,.75],yOffset:.4,shelter:false,health:80,support:"ground"},
+  {id:"bed",name:"Cama",description:"Permite dormir até o amanhecer e define o ponto de retorno.",cost:{wood:3,stone:0},size:[1.2,.35,2.2],yOffset:.18,shelter:false,health:70,support:"ground"},
 ];
 
 export function getBuildingPiece(pieceId){return BUILDING_PIECES.find(piece=>piece.id===pieceId)??null;}
@@ -17,6 +20,7 @@ const WALL_HEIGHT=2.7;
 const FOUNDATION_TOP=.28;
 const ROOF_SUPPORT_OFFSET=.05;
 const WALL_IDS=new Set(["wall","door"]);
+const ROOF_IDS=new Set(["roof","slopedRoof"]);
 
 function normalizeRotation(rotation){
   const full=Math.PI*2;
@@ -58,6 +62,10 @@ export function findBuildingSnap(pieceId,target,structures,maxDistance=2.15){
       add(x,y,z-MODULE_SIZE,target.rotation,"foundation-side","Fundação conectada");
     }
 
+    if((pieceId==="stairs"||pieceId==="ramp")&&id==="foundation"){
+      add(x+MODULE_SIZE,y,z,Math.PI/2,"access-side","Acesso conectado");add(x-MODULE_SIZE,y,z,Math.PI/2,"access-side","Acesso conectado");add(x,y,z+MODULE_SIZE,0,"access-side","Acesso conectado");add(x,y,z-MODULE_SIZE,0,"access-side","Acesso conectado");
+    }
+
     if(WALL_IDS.has(pieceId)&&id==="foundation"){
       add(x,y+FOUNDATION_TOP,z+MODULE_SIZE/2,0,"foundation-edge","Encaixe na fundação");
       add(x,y+FOUNDATION_TOP,z-MODULE_SIZE/2,0,"foundation-edge","Encaixe na fundação");
@@ -72,17 +80,17 @@ export function findBuildingSnap(pieceId,target,structures,maxDistance=2.15){
       add(x,y+WALL_HEIGHT,z,rotation,"wall-top","Parede empilhada");
     }
 
-    if(pieceId==="roof"&&id==="foundation"){
+    if(ROOF_IDS.has(pieceId)&&id==="foundation"){
       add(x,y+FOUNDATION_TOP+ROOF_SUPPORT_OFFSET,z,target.rotation,"roof-foundation","Telhado encaixado");
     }
 
-    if(pieceId==="roof"&&WALL_IDS.has(id)){
+    if(ROOF_IDS.has(pieceId)&&WALL_IDS.has(id)){
       const normalX=Math.sin(rotation),normalZ=Math.cos(rotation);
       add(x+normalX*MODULE_SIZE/2,y+ROOF_SUPPORT_OFFSET,z+normalZ*MODULE_SIZE/2,target.rotation,"roof-top","Telhado apoiado");
       add(x-normalX*MODULE_SIZE/2,y+ROOF_SUPPORT_OFFSET,z-normalZ*MODULE_SIZE/2,target.rotation,"roof-top","Telhado apoiado");
     }
 
-    if(pieceId==="roof"&&id==="roof"){
+    if(ROOF_IDS.has(pieceId)&&ROOF_IDS.has(id)){
       add(x+MODULE_SIZE,y,z,target.rotation,"roof-side","Telhado conectado");
       add(x-MODULE_SIZE,y,z,target.rotation,"roof-side","Telhado conectado");
       add(x,y,z+MODULE_SIZE,target.rotation,"roof-side","Telhado conectado");
@@ -113,7 +121,7 @@ function wallJointAllowed(a,b){
 }
 
 function roofJointAllowed(a,b){
-  if(a.id!=="roof"||b.id!=="roof"||Math.abs(a.y-b.y)>.08)return false;
+  if(!ROOF_IDS.has(a.id)||!ROOF_IDS.has(b.id)||Math.abs(a.y-b.y)>.4)return false;
   const deltaX=Math.abs(a.x-b.x),deltaZ=Math.abs(a.z-b.z);
   return Math.abs(deltaX-MODULE_SIZE)<.08&&deltaZ<.08||Math.abs(deltaZ-MODULE_SIZE)<.08&&deltaX<.08;
 }
@@ -127,10 +135,36 @@ export function buildingPlacementBlocked(candidate,structures){
     if(!otherPiece)return false;
     const comparable=candidate.id==="foundation"&&structure.id==="foundation"||
       WALL_IDS.has(candidate.id)&&WALL_IDS.has(structure.id)||
-      candidate.id==="roof"&&structure.id==="roof"||
-      ["chest","bed"].includes(candidate.id)&&["chest","bed"].includes(structure.id);
+      ROOF_IDS.has(candidate.id)&&ROOF_IDS.has(structure.id)||
+      ["chest","bed","stairs","ramp"].includes(candidate.id)&&["chest","bed","stairs","ramp"].includes(structure.id);
     if(!comparable||wallJointAllowed(candidate,structure)||roofJointAllowed(candidate,structure))return false;
     const a=orientedFootprint(candidatePiece,candidate.rotation??0),b=orientedFootprint(otherPiece,structure.rotation??0);
     return footprintsOverlap({x:candidate.x,z:candidate.z,...a},{x:structure.x,z:structure.z,...b},-.015)&&verticalOverlap(candidate,candidatePiece,structure,otherPiece);
   });
+}
+
+export function structureRefund(piece,ratio=.5){
+  return{wood:Math.floor(piece.cost.wood*ratio),stone:Math.floor(piece.cost.stone*ratio)};
+}
+
+export function structureRepairCost(piece,health){
+  const missing=Math.max(0,1-health/piece.health);
+  return{wood:Math.ceil(piece.cost.wood*missing*.6),stone:Math.ceil(piece.cost.stone*missing*.6)};
+}
+
+export function isStructureSupported(candidate,structures){
+  const piece=getBuildingPiece(candidate.id);if(!piece)return false;
+  if(piece.support==="ground")return true;
+  if(piece.support==="foundation")return structures.some(structure=>{
+    if(structure.id==="foundation")return horizontalDistance(candidate,structure)<2.25&&Math.abs(candidate.y-structure.y)<.7;
+    return WALL_IDS.has(structure.id)&&horizontalDistance(candidate,structure)<.25&&candidate.y-structure.y>2.55&&candidate.y-structure.y<2.85;
+  });
+  if(piece.support==="wall")return structures.some(structure=>WALL_IDS.has(structure.id)&&horizontalDistance(candidate,structure)<2.25&&Math.abs(candidate.y-structure.y)<.55)||structures.some(structure=>ROOF_IDS.has(structure.id)&&horizontalDistance(candidate,structure)<3.2&&Math.abs(candidate.y-structure.y)<.4);
+  return true;
+}
+
+export function unsupportedStructuresAfterRemoval(target,structures){
+  const remaining=structures.filter(structure=>structure!==target),supported=remaining.filter(structure=>getBuildingPiece(structure.id)?.support==="ground");
+  let changed=true;while(changed){changed=false;for(const structure of remaining){if(supported.includes(structure))continue;if(isStructureSupported(structure,supported)){supported.push(structure);changed=true;}}}
+  return remaining.filter(structure=>!supported.includes(structure));
 }

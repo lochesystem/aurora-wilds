@@ -46,7 +46,9 @@ test("mantém os sistemas essenciais do survival no bundle-fonte", async () => {
   assert.match(world, /visibleChunkCoordinates/);
   assert.match(shell, /Entrar no mundo/);
   assert.match(shell, /Frutos/);
-  assert.match(shell, /Inventário & crafting/);
+  assert.match(shell, /Equipamento de campo/);
+  assert.match(shell, /Mochila/);
+  assert.match(shell, /Roupas futuras aumentarão estas proteções/);
   assert.match(shell, /Prepare-se antes do anoitecer/);
   assert.match(engine, /placeCampfire/);
   assert.match(engine, /temperature<5/);

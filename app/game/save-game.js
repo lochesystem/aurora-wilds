@@ -1,4 +1,4 @@
-import { normalizeHotbarSlots } from "./inventory.js";
+import { normalizeEquipmentSlots, normalizeHotbarSlots, normalizeWeaponSlots } from "./inventory.js";
 
 export const SAVE_KEY="aurora-wilds-save-v1";
 export const SAVE_VERSION=1;
@@ -15,12 +15,13 @@ export function normalizeSave(raw){
     health:Math.min(100,nonNegative(raw.health,100)),hunger:Math.min(100,nonNegative(raw.hunger,78)),
     berries:Math.floor(nonNegative(raw.berries)),rawMeat:Math.floor(nonNegative(raw.rawMeat)),cookedMeat:Math.floor(nonNegative(raw.cookedMeat)),wood:Math.floor(nonNegative(raw.wood)),stone:Math.floor(nonNegative(raw.stone)),
     axeDurability:Math.min(100,nonNegative(raw.axeDurability)),pickaxeDurability:Math.min(100,nonNegative(raw.pickaxeDurability)),spearDurability:Math.min(100,nonNegative(raw.spearDurability)),hammer:Boolean(raw.hammer),campfireKits:Math.floor(nonNegative(raw.campfireKits)),
-    survivalTime:nonNegative(raw.survivalTime),survivedNights:Math.floor(nonNegative(raw.survivedNights)),selectedSlot:Math.max(0,Math.min(8,Math.floor(nonNegative(raw.selectedSlot)))),hotbarSlots:normalizeHotbarSlots(raw.hotbarSlots),
+    survivalTime:nonNegative(raw.survivalTime),survivedNights:Math.floor(nonNegative(raw.survivedNights)),selectedSlot:Math.max(0,Math.min(8,Math.floor(nonNegative(raw.selectedSlot)))),hotbarSlots:normalizeHotbarSlots(raw.hotbarSlots),equipmentSlots:normalizeEquipmentSlots(raw.equipmentSlots),weaponSlots:normalizeWeaponSlots(raw.weaponSlots),
     collectedResources:Array.isArray(raw.collectedResources)?raw.collectedResources.filter(value=>typeof value==="string").slice(0,5000):[],
     defeatedFauna:Array.isArray(raw.defeatedFauna)?raw.defeatedFauna.filter(value=>typeof value==="string").slice(0,5000):[],
+    visitedPois:Array.isArray(raw.visitedPois)?raw.visitedPois.filter(value=>typeof value==="string").slice(0,5000):[],
     resourceDamage:normalizeDamage(raw.resourceDamage),
     campfires:Array.isArray(raw.campfires)?raw.campfires.filter(validPlacement).slice(0,200):[],
-    structures:Array.isArray(raw.structures)?raw.structures.filter(validStructure).slice(0,1000).map(value=>({...value,storage:normalizeStorage(value.storage)})):[],
+    structures:Array.isArray(raw.structures)?raw.structures.filter(validStructure).slice(0,1000).map(value=>({...value,storage:normalizeStorage(value.storage),health:nonNegative(value.health,9999),open:Boolean(value.open)})):[],
     respawn:raw.respawn&&typeof raw.respawn==="object"?{x:finite(raw.respawn.x),y:finite(raw.respawn.y,3),z:finite(raw.respawn.z)}:null,
   };
 }

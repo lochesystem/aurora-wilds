@@ -1,12 +1,23 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BUILDING_PIECES, buildingPlacementBlocked, canBuild, findBuildingSnap, footprintsOverlap, snapToGrid } from "../app/game/building.js";
+import { BUILDING_PIECES, buildingPlacementBlocked, canBuild, findBuildingSnap, footprintsOverlap, isStructureSupported, snapToGrid, structureRefund, structureRepairCost, unsupportedStructuresAfterRemoval } from "../app/game/building.js";
 import { normalizeSave, SAVE_VERSION } from "../app/game/save-game.js";
 
 test("o catálogo contém as peças do primeiro abrigo",()=>{
-  assert.deepEqual(BUILDING_PIECES.map(piece=>piece.id),["foundation","wall","door","roof","chest","bed"]);
+  assert.deepEqual(BUILDING_PIECES.map(piece=>piece.id),["foundation","wall","door","roof","slopedRoof","stairs","ramp","chest","bed"]);
   assert.equal(canBuild(BUILDING_PIECES[0],{wood:3,stone:1}),true);
   assert.equal(snapToGrid(2.61),3);
+});
+
+test("estruturas têm vida, reparo, reembolso e sustentação",()=>{
+  const foundation=BUILDING_PIECES[0],wall=BUILDING_PIECES[1];
+  assert.deepEqual(structureRefund(foundation),{wood:1,stone:0});
+  assert.deepEqual(structureRepairCost(wall,60),{wood:1,stone:0});
+  const base={id:"foundation",x:0,y:0,z:0,rotation:0},supported={id:"wall",x:0,y:.28,z:1.5,rotation:0};
+  assert.equal(isStructureSupported(supported,[base]),true);
+  assert.deepEqual(unsupportedStructuresAfterRemoval(base,[base,supported]),[supported]);
+  const roofA={id:"roof",x:0,y:.33,z:0,rotation:0},roofB={id:"roof",x:3,y:.33,z:0,rotation:0};
+  assert.deepEqual(unsupportedStructuresAfterRemoval(base,[base,supported,roofA,roofB]),[supported,roofA,roofB]);
 });
 
 test("a validação de footprint detecta peças sobrepostas",()=>{
@@ -66,6 +77,12 @@ test("encaixe com telhado prevalece quando fundação e telhado oferecem o mesmo
 
 test("posicionamento permanece livre longe de pontos compatíveis",()=>{
   assert.equal(findBuildingSnap("foundation",{x:12,y:0,z:12,rotation:0},[{id:"foundation",x:0,y:0,z:0,rotation:0}]),null);
+});
+
+test("escadas e rampas conectam nas laterais de fundações",()=>{
+  const foundation=[{id:"foundation",x:0,y:1,z:0,rotation:0}];
+  assert.equal(findBuildingSnap("stairs",{x:0,y:1,z:3.1,rotation:0},foundation).kind,"access-side");
+  assert.equal(findBuildingSnap("ramp",{x:-3.1,y:1,z:0,rotation:0},foundation).label,"Acesso conectado");
 });
 
 test("o save local rejeita versões desconhecidas e normaliza valores",()=>{
