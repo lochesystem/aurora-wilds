@@ -3,6 +3,7 @@ export const CHUNK_SIZE = 32;
 export const CHUNK_SEGMENTS = 12;
 export const CHUNK_LOAD_RADIUS = 2;
 export const GRASS_TUFTS_PER_CHUNK = 1600;
+export const WATER_LEVEL=-1.25;
 
 export function grassTuftBudget(amount){
   if(amount==="none")return 0;
@@ -32,11 +33,35 @@ function valueNoise(x, z, scale, seedOffset) {
   return top * (1 - tz) + bottom * tz;
 }
 
+export function riverCenterAt(x){return 48+Math.sin(x*.018)*19+Math.sin(x*.006+1.7)*11;}
+export function riverDistanceAt(x,z){return Math.abs(z-riverCenterAt(x));}
+export function isWaterAt(x,z){return riverDistanceAt(x,z)<3.2;}
+
+export function mountainFieldAt(x,z){
+  const distanceFade=smoothstep(Math.max(0,Math.min(1,(Math.hypot(x,z)-42)/90)));
+  const ridge=valueNoise(x-120,z+85,118,2243)*.68+valueNoise(x+33,z-17,47,2297)*.32;
+  const peak=Math.max(0,(ridge-.54)/.46);return peak*peak*19*distanceFade;
+}
+
 export function terrainHeightAt(x, z) {
   const broad = (valueNoise(x, z, 52, 11) - 0.5) * 7;
   const detail = (valueNoise(x, z, 19, 29) - 0.5) * 2.2;
   const ridges = Math.sin(x * 0.045) * Math.cos(z * 0.038) * 1.25;
-  return broad + detail + ridges;
+  const natural=broad+detail+ridges+mountainFieldAt(x,z),distance=riverDistanceAt(x,z);
+  const bank=smoothstep(Math.max(0,Math.min(1,(distance-2.6)/5.2)));
+  return (WATER_LEVEL-1.1)*(1-bank)+natural*bank;
+}
+
+export function safeSurfaceReturn(x,z,savedY){
+  return{x,z,y:Math.max(terrainHeightAt(x,z)+2.4,Number.isFinite(savedY)?savedY:0)};
+}
+
+export function biomeAt(x,z){
+  if(riverDistanceAt(x,z)<7)return{id:"riverlands",name:"Margens Luminosas",resourceBias:"berry",danger:1.1};
+  const height=terrainHeightAt(x,z),forest=valueNoise(x+71,z-43,76,1711);
+  if(height>4.2||mountainFieldAt(x,z)>3)return{id:"highlands",name:"Serra de Pedra",resourceBias:"stone",danger:1.3};
+  if(forest>.61)return{id:"forest",name:"Bosque Verdejante",resourceBias:"wood",danger:1.2};
+  return{id:"meadows",name:"Campos de Aurora",resourceBias:"mixed",danger:1};
 }
 
 export function chunkKey(chunkX, chunkZ) {
@@ -61,21 +86,33 @@ export function resourcesForChunk(chunkX, chunkZ) {
   for (let index = 0; index < count; index += 1) {
     const randomX = hash2D(chunkX * 31 + index, chunkZ * 17 - index, WORLD_SEED + 211);
     const randomZ = hash2D(chunkX * 13 - index, chunkZ * 29 + index, WORLD_SEED + 307);
-    const kindRoll = hash2D(chunkX * 7 + index, chunkZ * 11 + index, WORLD_SEED + 401);
     const x = chunkX * CHUNK_SIZE + 2.5 + randomX * (CHUNK_SIZE - 5);
     const z = chunkZ * CHUNK_SIZE + 2.5 + randomZ * (CHUNK_SIZE - 5);
-    const kind = kindRoll < 0.36 ? "berry" : kindRoll < 0.72 ? "wood" : "stone";
+    if(isWaterAt(x,z))continue;
+    const kindRoll = hash2D(chunkX * 7 + index, chunkZ * 11 + index, WORLD_SEED + 401),biome=biomeAt(x,z);
+    const kind = biome.resourceBias==="wood"?(kindRoll<.58?"wood":kindRoll<.78?"berry":"stone"):biome.resourceBias==="stone"?(kindRoll<.56?"stone":kindRoll<.78?"wood":"berry"):biome.resourceBias==="berry"?(kindRoll<.54?"berry":kindRoll<.77?"wood":"stone"):(kindRoll < 0.36 ? "berry" : kindRoll < 0.72 ? "wood" : "stone");
     resources.push({ id: `${chunkKey(chunkX, chunkZ)}:${index}`, kind, x, y: terrainHeightAt(x, z), z, scale: 0.82 + hash2D(index, chunkX - chunkZ, WORLD_SEED + 503) * 0.42 });
   }
   return resources;
 }
 
 export function grassDensityAt(x,z){
+  if(isWaterAt(x,z))return 0;
   const broad=valueNoise(x,z,92,1379);
   const detail=valueNoise(x+19,z-31,38,1487);
   const field=broad*.74+detail*.26;
   const transition=Math.max(0,Math.min(1,(field-.35)/.3));
   return smoothstep(transition);
+}
+
+export function pointsOfInterestForChunk(chunkX,chunkZ){
+  if(Math.abs(chunkX)<=1&&Math.abs(chunkZ)<=1)return[];
+  if(hash2D(chunkX,chunkZ,WORLD_SEED+1901)<.68)return[];
+  const roll=hash2D(chunkX*17,chunkZ*23,WORLD_SEED+1999),chunkBiome=biomeAt((chunkX+.5)*CHUNK_SIZE,(chunkZ+.5)*CHUNK_SIZE),type=chunkBiome.id==="highlands"&&roll<.62?"cave":roll<.34?"ruin":roll<.67?"cave":"camp";
+  const x=chunkX*CHUNK_SIZE+7+hash2D(chunkX*29,chunkZ*31,WORLD_SEED+2017)*(CHUNK_SIZE-14);
+  let z=chunkZ*CHUNK_SIZE+7+hash2D(chunkX*37,chunkZ*41,WORLD_SEED+2081)*(CHUNK_SIZE-14);
+  if(isWaterAt(x,z))z+=z<riverCenterAt(x)?-7:7;
+  return[{id:`poi:${chunkX}:${chunkZ}:${type}`,type,x,z,y:terrainHeightAt(x,z),reward:type==="ruin"?{wood:3,stone:5,berries:1}:type==="cave"?{wood:1,stone:7,berries:0}:{wood:5,stone:2,berries:4}}];
 }
 
 export function grassForChunk(chunkX,chunkZ,count=GRASS_TUFTS_PER_CHUNK){

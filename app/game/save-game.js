@@ -18,9 +18,10 @@ export function normalizeSave(raw){
     survivalTime:nonNegative(raw.survivalTime),survivedNights:Math.floor(nonNegative(raw.survivedNights)),selectedSlot:Math.max(0,Math.min(8,Math.floor(nonNegative(raw.selectedSlot)))),hotbarSlots:normalizeHotbarSlots(raw.hotbarSlots),equipmentSlots:normalizeEquipmentSlots(raw.equipmentSlots),weaponSlots:normalizeWeaponSlots(raw.weaponSlots),
     collectedResources:Array.isArray(raw.collectedResources)?raw.collectedResources.filter(value=>typeof value==="string").slice(0,5000):[],
     defeatedFauna:Array.isArray(raw.defeatedFauna)?raw.defeatedFauna.filter(value=>typeof value==="string").slice(0,5000):[],
+    visitedPois:Array.isArray(raw.visitedPois)?raw.visitedPois.filter(value=>typeof value==="string").slice(0,5000):[],
     resourceDamage:normalizeDamage(raw.resourceDamage),
     campfires:Array.isArray(raw.campfires)?raw.campfires.filter(validPlacement).slice(0,200):[],
-    structures:Array.isArray(raw.structures)?raw.structures.filter(validStructure).slice(0,1000).map(value=>({...value,storage:normalizeStorage(value.storage)})):[],
+    structures:Array.isArray(raw.structures)?raw.structures.filter(validStructure).slice(0,1000).map(value=>({...value,storage:normalizeStorage(value.storage),health:nonNegative(value.health,9999),open:Boolean(value.open)})):[],
     respawn:raw.respawn&&typeof raw.respawn==="object"?{x:finite(raw.respawn.x),y:finite(raw.respawn.y,3),z:finite(raw.respawn.z)}:null,
   };
 }

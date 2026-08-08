@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { locomotionPose } from "./locomotion.js";
 import { attackPose, NEUTRAL_ATTACK } from "./attack-pose.js";
+import { climbingLimbPose } from "./climbing.js";
 
 export interface PlayerRig {
   group: THREE.Group;
@@ -189,7 +190,7 @@ function applyOffHandGrip(rig:PlayerRig,weight:number){
   rig.leftForearm.quaternion.slerp(forearmTarget,gripWeight);
 }
 
-export function animatePlayerModel(rig:PlayerRig,time:number,speed:number,grounded:boolean,verticalVelocity:number,running:boolean,attack:AttackState|null=null){
+export function animatePlayerModel(rig:PlayerRig,time:number,speed:number,grounded:boolean,verticalVelocity:number,running:boolean,attack:AttackState|null=null,climbing=false){
   const pose=locomotionPose(time,speed,running);
   const strike=attack?attackPose(attack):NEUTRAL_ATTACK;
   const weight=strike.weight;
@@ -237,6 +238,7 @@ export function animatePlayerModel(rig:PlayerRig,time:number,speed:number,ground
   rig.antenna.rotation.x=Math.sin(time*.7)*.1+Math.min(.28,speed*.05)-weight*strike.lean*.7;
   rig.antenna.rotation.z=Math.sin(time*.8)*.08;
   rig.scarf.forEach((joint,i)=>{joint.rotation.x=Math.sin(time*.65-i*.55)*.08+Math.max(-.25,Math.min(.3,-verticalVelocity*.012))-weight*strike.lunge*.9;joint.rotation.y=Math.sin(time*.5-i)*.07+weight*strike.twist*.35});
+  if(climbing){const climb=climbingLimbPose(time);rig.leftArm.rotation.x=lerp(rig.leftArm.rotation.x,climb.leftArm,.62);rig.rightArm.rotation.x=lerp(rig.rightArm.rotation.x,climb.rightArm,.62);rig.leftForearm.rotation.x=lerp(rig.leftForearm.rotation.x,-.7,.55);rig.rightForearm.rotation.x=lerp(rig.rightForearm.rotation.x,-.7,.55);rig.leftLeg.rotation.x=lerp(rig.leftLeg.rotation.x,climb.leftHip,.55);rig.rightLeg.rotation.x=lerp(rig.rightLeg.rotation.x,climb.rightHip,.55);rig.leftShin.rotation.x=lerp(rig.leftShin.rotation.x,climb.leftKnee,.55);rig.rightShin.rotation.x=lerp(rig.rightShin.rotation.x,climb.rightKnee,.55);rig.upperBody.rotation.x=lerp(rig.upperBody.rotation.x,.16,.4);rig.group.position.y+=Math.sin(time*5.4)*.025;}
 }
 
 export function createGuardianModel(index:number):GuardianRig{
