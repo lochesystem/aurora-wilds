@@ -195,9 +195,13 @@ h1 span { display: block; color: var(--gold); font-size: .66em; margin-left: .38
 
 /* Aurora Wilds survival MVP */
 .survival-root { --leaf:#8ecb72; --sun:#ffca63; --earth:#745842; background:radial-gradient(circle at 50% 25%,#90c8bd,#294c4e 74%); }
-.survival-title { place-items:end center; padding:clamp(24px,5vw,64px); background:linear-gradient(180deg,transparent 58%,rgba(5,20,24,.58) 100%),url('/og.png') center/cover no-repeat; }
-.survival-enter-wrap { display:flex; justify-content:center; width:100%; padding-bottom:clamp(8px,2vh,24px); }
-.survival-enter-btn { min-width:240px; padding:15px 30px; background:linear-gradient(180deg,#c8eb88,#82ba5e); box-shadow:0 6px 0 #477b45,0 14px 35px rgba(3,18,20,.42); }
+.survival-title { place-items:center start; padding:clamp(28px,7vw,110px); background:radial-gradient(circle at 22% 46%,rgba(7,29,30,.2),rgba(5,18,23,.08) 36%,rgba(5,18,23,.42) 100%),linear-gradient(90deg,rgba(5,22,25,.84),rgba(5,22,25,.24) 52%,transparent 76%); }
+.wilds-title-copy { width:min(620px,90vw); padding:clamp(24px,3vw,40px); border-left:2px solid rgba(121,230,198,.68); background:linear-gradient(90deg,rgba(7,29,31,.7),rgba(7,29,31,.18),transparent); filter:drop-shadow(0 18px 45px rgba(0,0,0,.28)); }
+.wilds-title-copy h1 { font-size:clamp(76px,10vw,138px); line-height:.72; text-shadow:0 7px 0 rgba(8,27,34,.38); }
+.wilds-title-copy h1 span { color:#98d66d; margin-left:.52em; }
+.title-tagline { max-width:540px; margin:30px 0 22px; color:rgba(255,255,255,.78); font-size:clamp(13px,1.25vw,17px); line-height:1.65; }
+.survival-enter-btn { min-width:250px; margin-top:26px; padding:15px 30px; background:linear-gradient(180deg,#c8eb88,#82ba5e); box-shadow:0 6px 0 #477b45,0 14px 35px rgba(3,18,20,.42); }
+.title-local-note { display:block; margin-top:18px; color:rgba(255,255,255,.4); font-size:9px; letter-spacing:.08em; text-transform:uppercase; }
 .primary-btn small,.secondary-btn small { display:inline-grid; min-width:20px; height:20px; place-items:center; margin-left:8px; border:1px solid currentColor; border-radius:50%; font-size:11px; line-height:1; opacity:.68; }
 .survival-title-card { width:min(560px,92vw); padding:34px; border:1px solid rgba(255,255,255,.18); border-radius:28px; background:linear-gradient(145deg,rgba(11,35,40,.86),rgba(18,47,47,.68)); box-shadow:0 30px 90px rgba(4,15,20,.48),inset 0 1px rgba(255,255,255,.13); backdrop-filter:blur(18px); }
 .survival-title-card h1 { font-size:clamp(72px,9vw,118px); line-height:.72; }
@@ -208,6 +212,26 @@ h1 span { display: block; color: var(--gold); font-size: .66em; margin-left: .38
 .survival-features span { display:flex; align-items:center; gap:7px; padding:7px 10px; border:1px solid rgba(255,255,255,.13); border-radius:99px; color:rgba(255,255,255,.72); background:rgba(255,255,255,.05); font-size:10px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; }
 .survival-features b { color:var(--sun); font-size:15px; }
 .mvp-note { margin:20px 0 0; color:rgba(255,255,255,.4); font-size:10px; }
+
+.character-creator { display:block; padding:clamp(22px,3.5vw,52px); overflow:auto; background:linear-gradient(90deg,rgba(5,20,24,.2),rgba(5,20,24,.03) 52%,rgba(5,20,24,.76) 69%),linear-gradient(180deg,rgba(4,19,24,.3),transparent 35%,rgba(4,19,24,.5)); }
+.creator-heading { position:absolute; top:clamp(25px,5vh,62px); left:clamp(25px,5vw,74px); max-width:500px; padding:22px 28px; border-left:2px solid #70dfc5; background:linear-gradient(90deg,rgba(5,26,29,.72),transparent); }
+.creator-heading h2 { font-size:clamp(42px,5vw,72px); line-height:.9; }
+.creator-heading>p:last-child { color:rgba(255,255,255,.62); font-size:12px; }
+.creator-controls { position:absolute; top:50%; right:clamp(24px,4.5vw,74px); width:min(500px,42vw); max-height:calc(100vh - 150px); overflow:auto; padding:14px; border:1px solid rgba(146,224,197,.24); border-radius:24px; background:linear-gradient(150deg,rgba(7,35,37,.93),rgba(9,27,31,.9)); box-shadow:0 28px 80px rgba(1,11,14,.55),inset 0 1px rgba(255,255,255,.09); transform:translateY(-50%); backdrop-filter:blur(17px); }
+.creator-controls>section { padding:13px; border:1px solid transparent; border-radius:15px; transition:.18s; }
+.creator-controls>section.selected { border-color:rgba(112,223,197,.62); background:rgba(74,180,151,.09); box-shadow:inset 3px 0 #70dfc5; }
+.creator-section-title { display:grid; grid-template-columns:28px 1fr auto; align-items:center; gap:8px; margin-bottom:10px; }
+.creator-section-title>span { color:#70dfc5; font-family:var(--font-display); font-size:18px; }
+.creator-section-title strong,.creator-section-title small { display:block; }.creator-section-title strong { font-family:var(--font-display); font-size:18px; letter-spacing:.05em; text-transform:uppercase; }.creator-section-title small { color:rgba(255,255,255,.42); font-size:8px; }
+.hair-style-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:6px; }
+.hair-style-grid button { min-width:0; padding:7px 4px 6px; border:1px solid rgba(255,255,255,.1); border-radius:10px; color:rgba(255,255,255,.48); cursor:pointer; background:rgba(255,255,255,.035); }
+.hair-style-grid button.active { border-color:#e8d175; color:#fff1ad; background:rgba(232,209,117,.12); box-shadow:0 0 0 2px rgba(232,209,117,.12); }.hair-style-grid button>small { display:block; overflow:hidden; margin-top:4px; font-size:6px; text-overflow:ellipsis; white-space:nowrap; }
+.hair-thumb { position:relative; display:block; width:42px; height:42px; margin:auto; border-radius:48% 48% 43% 43%; background:#d8aa7d; box-shadow:inset 0 -10px rgba(106,65,42,.2); }.hair-thumb::before,.hair-thumb::after,.hair-thumb i { content:""; position:absolute; display:block; background:#e8c86d; }.hair-thumb::before { left:3px; top:-3px; width:36px; height:19px; border-radius:50% 50% 35% 35%; }.hair-thumb i { left:7px; top:12px; width:10px; height:16px; border-radius:8px 2px 8px 2px; transform:rotate(14deg); }
+.hair-ponytail::after { right:-8px; top:6px; width:13px; height:30px; border-radius:5px 10px 12px 4px; transform:rotate(-20deg); }.hair-crop::before { height:12px; }.hair-crop i { height:9px; }.hair-bob::after { inset:3px -3px -5px; z-index:-1; border-radius:18px; }.hair-mohawk::before { left:16px; top:-11px; width:11px; height:27px; border-radius:50% 50% 2px 2px; }.hair-mohawk i { display:none; }.hair-buns::after { left:-8px; top:-2px; width:16px; height:16px; border-radius:50%; box-shadow:42px 0 #e8c86d; }
+.color-swatches { display:grid; grid-template-columns:repeat(8,1fr); gap:7px; }.color-swatches button { aspect-ratio:1; min-width:0; border:2px solid rgba(255,255,255,.12); border-radius:50%; cursor:pointer; box-shadow:inset 0 0 0 2px rgba(0,0,0,.15); }.color-swatches button[aria-pressed="true"] { border-color:#fff4bd; outline:2px solid rgba(255,244,189,.25); outline-offset:2px; }
+.custom-color { display:flex; align-items:center; gap:6px; padding:6px 8px; border:1px solid rgba(255,255,255,.1); border-radius:8px; color:rgba(255,255,255,.55); cursor:pointer; font-size:7px; font-weight:900; text-transform:uppercase; }.custom-color input { position:absolute; width:1px; height:1px; opacity:0; }.custom-color i { width:16px; height:16px; border:2px solid rgba(255,255,255,.6); border-radius:50%; background:var(--picker-color); }
+.creator-confirm { position:relative; display:grid; width:calc(100% - 26px); margin:8px 13px 4px; padding:12px 52px 12px 15px; border:1px solid rgba(151,215,105,.45); border-radius:13px; color:#11261d; cursor:pointer; text-align:left; background:linear-gradient(180deg,#bce983,#83c35e); box-shadow:0 5px 0 #467842; }.creator-confirm.selected { outline:3px solid rgba(255,239,155,.75); outline-offset:3px; }.creator-confirm span { font-size:7px; font-weight:900; letter-spacing:.1em; text-transform:uppercase; opacity:.58; }.creator-confirm strong { font-family:var(--font-display); font-size:19px; letter-spacing:.04em; text-transform:uppercase; }.creator-confirm kbd { position:absolute; right:16px; top:50%; transform:translateY(-50%); }
+.creator-preview-help { position:absolute; left:clamp(25px,5vw,74px); bottom:clamp(22px,4vh,46px); display:flex; align-items:center; gap:18px; padding:10px 14px; border-radius:11px; background:rgba(5,25,28,.68); color:rgba(255,255,255,.55); font-size:8px; font-weight:800; text-transform:uppercase; backdrop-filter:blur(9px); }.creator-preview-help span { display:flex; align-items:center; gap:4px; }.creator-preview-help button { border:0; color:#9be5cc; cursor:pointer; background:transparent; font-size:inherit; font-weight:inherit; text-transform:inherit; }
 
 .survival-hud { padding:20px; }
 .survival-status { display:grid; gap:8px; width:250px; }
@@ -360,8 +384,8 @@ h1 span { display: block; color: var(--gold); font-size: .66em; margin-left: .38
 .simple-hotbar-editor { display:grid; grid-template-columns:160px 1fr; align-items:center; gap:14px; padding:12px 24px; border-top:1px solid rgba(255,255,255,.09); background:rgba(0,0,0,.18); }.simple-hotbar-editor>div:first-child strong { display:block; font-family:var(--font-display); font-size:15px; letter-spacing:.05em; text-transform:uppercase; }.simple-hotbar-editor>div:first-child small { color:rgba(255,255,255,.38); font-size:7px; }.simple-crafting-list { grid-template-columns:repeat(2,minmax(0,1fr)); min-height:440px; align-content:start; }
 
 @media (max-width:720px) {
-  .survival-title { padding:18px; background:linear-gradient(180deg,transparent 52%,rgba(5,20,24,.72) 100%),url('/og.png') center/cover no-repeat; }
-  .survival-enter-wrap { padding-bottom:12px; }
+  .survival-title { align-items:end; padding:18px; background:linear-gradient(180deg,rgba(5,20,24,.08) 22%,rgba(5,20,24,.82) 78%); }
+  .wilds-title-copy { width:100%; padding:20px; }.wilds-title-copy h1 { font-size:65px; }.title-tagline { margin:22px 0 15px; }.title-local-note { margin-top:12px; }
   .survival-enter-btn { width:min(320px,100%); }
   .survival-features,.world-stats,.survival-controls { display:none; }
   .minimap { width:104px; height:104px; top:18px; right:16px; }
@@ -374,6 +398,7 @@ h1 span { display: block; color: var(--gold); font-size: .66em; margin-left: .38
   .interaction-prompt { bottom:126px; white-space:nowrap; }
   .inventory-modal>header { padding:17px; }.inventory-modal h2 { font-size:27px; }.inventory-tabs button { padding:7px; }.inventory-summary { padding:11px 15px; }.simple-inventory-body { grid-template-columns:1fr; }.backpack-panel { padding:15px; border-right:0; border-bottom:1px solid rgba(255,255,255,.09); }.simple-item-grid { grid-template-columns:repeat(5,minmax(45px,1fr)); }.character-equipment { padding:15px; }.character-stage { min-height:220px; }.simple-hotbar-editor { grid-template-columns:1fr; padding:12px 15px; }.inventory-hotbar { overflow-x:auto; grid-template-columns:repeat(9,48px); }.simple-crafting-list { grid-template-columns:1fr; min-height:auto; }.recipe-list { padding:13px 15px 17px; }.building-list { grid-template-columns:1fr; }.recipe-card { grid-template-columns:44px 1fr 22px; padding:10px; }.recipe-icon { width:40px;height:40px; }.inventory-modal>footer { flex-wrap:wrap; gap:8px; font-size:7px; }
   .grass-options { grid-template-columns:1fr; }.grass-options button { min-height:auto; }.grass-settings-card { max-height:92vh; overflow:auto; }
+  .character-creator { padding:12px; background:linear-gradient(180deg,rgba(5,20,24,.18),rgba(5,20,24,.88) 42%); }.creator-heading { position:relative; top:auto; left:auto; padding:13px 16px; }.creator-heading h2 { font-size:36px; }.creator-controls { position:relative; top:auto; right:auto; width:100%; max-height:65vh; margin-top:180px; transform:none; }.creator-preview-help { position:relative; left:auto; bottom:auto; flex-wrap:wrap; margin:10px 0; }.hair-style-grid { grid-template-columns:repeat(5,minmax(52px,1fr)); overflow-x:auto; }
 }
 
 @media (max-width:420px) {

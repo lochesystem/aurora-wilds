@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { AuroraGame, WORLD_SEED, type GameSnapshot } from "./engine";
 import { loadSettings, saveSettings, type GrassAmount } from "./settings";
 import { CRAFTING_RECIPES } from "./crafting.js";
@@ -8,8 +8,10 @@ import { BUILDING_PIECES } from "./building.js";
 import { CARRIED_EQUIPMENT_IDS, DEFAULT_EQUIPMENT, DEFAULT_HOTBAR, DEFAULT_WEAPON_SLOTS } from "./inventory.js";
 import { moveGridSelection } from "./menu-navigation.js";
 import { minimapHeading, minimapPosition } from "./minimap.js";
+import { HAIR_STYLES, hasCharacterAppearance, loadCharacterAppearance, saveCharacterAppearance } from "./character-customization.js";
+import type { PlayerAppearance } from "./models";
 
-type Screen = "title" | "playing" | "inventory" | "build" | "paused" | "settings" | "dead";
+type Screen = "title" | "creator" | "playing" | "inventory" | "build" | "paused" | "settings" | "dead";
 type InventoryTab="bag"|"craft";
 
 const GRASS_OPTIONS:Array<{value:GrassAmount;label:string;description:string}>=[
@@ -17,6 +19,8 @@ const GRASS_OPTIONS:Array<{value:GrassAmount;label:string;description:string}>=[
   {value:"low",label:"Pouca",description:"Vegetação leve com clareiras e transições orgânicas."},
   {value:"high",label:"Muita",description:"Campos densos com cobertura completa nas áreas férteis."},
 ];
+const SKIN_COLORS=["#f6d4b2","#edbd91","#ce8e65","#a86448","#704536","#3f2c29"];
+const HAIR_COLORS=["#e8c86d","#70452f","#342b2d","#b65435","#d98da4","#7b70c7","#4b9a8c","#e6e1d8"];
 
 const EMPTY: GameSnapshot = {
   health:100, hunger:78, berries:0, rawMeat:0, cookedMeat:0, wood:0, stone:0,
@@ -67,6 +71,9 @@ export default function GameShell() {
   const [inventoryTab,setInventoryTab]=useState<InventoryTab>("bag");
   const [menuActionIndex,setMenuActionIndex]=useState(0);
   const [settings,setSettings]=useState(loadSettings);
+  const [appearance,setAppearance]=useState<PlayerAppearance>(loadCharacterAppearance);
+  const [characterCreated,setCharacterCreated]=useState(hasCharacterAppearance);
+  const [creatorSection,setCreatorSection]=useState(0);
   const ownedInventoryItems=INVENTORY_ITEMS.filter(item=>itemOwned(item.id,snapshot));
   const selectedInventoryItem=ownedInventoryItems[selectedInventoryIndex%Math.max(1,ownedInventoryItems.length)]??INVENTORY_ITEMS[0];
 
@@ -93,7 +100,7 @@ export default function GameShell() {
   },[runId,showToast]);
 
   useEffect(()=>gameRef.current?.setPaused(screen!=="playing"),[screen]);
-  useEffect(()=>setMenuActionIndex(0),[screen]);
+  useEffect(()=>{const frame=requestAnimationFrame(()=>setMenuActionIndex(0));return()=>cancelAnimationFrame(frame);},[screen]);
   useEffect(()=>()=>{if(toastTimer.current)clearTimeout(toastTimer.current);},[]);
 
   const start=useCallback(()=>{
@@ -103,6 +110,27 @@ export default function GameShell() {
     showToast("Explore, colete e sobreviva");
     canvasRef.current?.focus();
   },[showToast]);
+
+  const updateAppearance=useCallback((change:Partial<PlayerAppearance>)=>{
+    setAppearance(current=>{const next={...current,...change};gameRef.current?.applyCharacterAppearance(next);return next;});
+  },[]);
+  const openWorld=useCallback(()=>{
+    if(!characterCreated){setCreatorSection(0);setScreen("creator");return;}
+    start();
+  },[characterCreated,start]);
+  const confirmCharacter=useCallback(()=>{
+    const saved=saveCharacterAppearance(appearance);setAppearance(saved);setCharacterCreated(true);gameRef.current?.setCreatorPreview(false);start();
+  },[appearance,start]);
+  const cycleCreatorValue=useCallback((direction:number)=>{
+    if(creatorSection===0)updateAppearance({hairStyle:(appearance.hairStyle+direction+HAIR_STYLES.length)%HAIR_STYLES.length});
+    if(creatorSection===1){const current=Math.max(0,SKIN_COLORS.indexOf(appearance.skinColor));updateAppearance({skinColor:SKIN_COLORS[(current+direction+SKIN_COLORS.length)%SKIN_COLORS.length]});}
+    if(creatorSection===2){const current=Math.max(0,HAIR_COLORS.indexOf(appearance.hairColor));updateAppearance({hairColor:HAIR_COLORS[(current+direction+HAIR_COLORS.length)%HAIR_COLORS.length]});}
+  },[appearance,creatorSection,updateAppearance]);
+
+  useEffect(()=>{
+    if(screen!=="creator"){gameRef.current?.setCreatorPreview(false);return;}
+    gameRef.current?.applyCharacterAppearance(appearance);gameRef.current?.setCreatorPreview(true);
+  },[screen,appearance]);
 
   const resume=useCallback(()=>{setScreen("playing");canvasRef.current?.focus();},[]);
   const assignInventoryItem=useCallback((itemId:string,slot=hotbarEditSlot)=>{gameRef.current?.setHotbarSlot(slot,itemId);setHotbarEditSlot(slot);},[hotbarEditSlot]);
@@ -124,7 +152,13 @@ export default function GameShell() {
       const next=new Set<number>();
       pad?.buttons.forEach((button,index)=>{if(button.pressed||button.value>.55)next.add(index);});
       const justPressed=(index:number)=>next.has(index)&&!menuPadButtons.current.has(index);
-      if(screen==="inventory"&&justPressed(6))setInventoryTab("bag");
+      if(screen==="creator"&&justPressed(12))setCreatorSection(current=>(current+3)%4);
+      else if(screen==="creator"&&justPressed(13))setCreatorSection(current=>(current+1)%4);
+      else if(screen==="creator"&&justPressed(14))cycleCreatorValue(-1);
+      else if(screen==="creator"&&justPressed(15))cycleCreatorValue(1);
+      else if(screen==="creator"&&justPressed(4))gameRef.current?.rotateCharacterPreview(-1);
+      else if(screen==="creator"&&justPressed(5))gameRef.current?.rotateCharacterPreview(1);
+      else if(screen==="inventory"&&justPressed(6))setInventoryTab("bag");
       else if(screen==="inventory"&&justPressed(7))setInventoryTab("craft");
       else if(screen==="inventory"&&inventoryTab==="bag"&&justPressed(2))assignInventoryItem(selectedInventoryItem.id);
       else if(screen==="inventory"&&inventoryTab==="bag"&&justPressed(3))gameRef.current?.equipWeapon(selectedInventoryItem.id);
@@ -139,7 +173,8 @@ export default function GameShell() {
         else if(screen==="build"){gameRef.current?.startBuilding(BUILDING_PIECES[selectedBuildingPiece].id);resume();}
         else if(screen==="paused"){if(menuActionIndex===0)resume();else if(menuActionIndex===1)setScreen("settings");else setScreen("title");}
         else if(screen==="dead"){if(menuActionIndex===0)start();else setScreen("title");}
-        else if(screen==="title")start();
+        else if(screen==="creator"){if(creatorSection===3)confirmCharacter();else setCreatorSection(current=>Math.min(3,current+1));}
+        else if(screen==="title")openWorld();
       }else if(screen==="inventory"&&inventoryTab==="bag"&&justPressed(14))setSelectedInventoryIndex(current=>moveGridSelection(current,ownedInventoryItems.length,5,"left"));
       else if(screen==="inventory"&&inventoryTab==="bag"&&justPressed(15))setSelectedInventoryIndex(current=>moveGridSelection(current,ownedInventoryItems.length,5,"right"));
       else if(screen==="inventory"&&inventoryTab==="bag"&&justPressed(12))setSelectedInventoryIndex(current=>moveGridSelection(current,ownedInventoryItems.length,5,"up"));
@@ -159,13 +194,29 @@ export default function GameShell() {
       else if(justPressed(9)&&screen==="paused")resume();
       else if(justPressed(1)&&screen==="inventory")resume();
       else if(justPressed(1)&&screen==="settings")setScreen("paused");
+      else if(justPressed(1)&&screen==="creator")setScreen("title");
       else if(justPressed(1)&&(screen==="paused"||screen==="dead"))setScreen("title");
       menuPadButtons.current=next;
       frame=requestAnimationFrame(tick);
     };
     frame=requestAnimationFrame(tick);
     return()=>cancelAnimationFrame(frame);
-  },[screen,start,resume,selectedRecipe,selectedBuildingPiece,selectedInventoryItem,ownedInventoryItems.length,inventoryTab,assignInventoryItem,cycleGrass,menuActionIndex]);
+  },[screen,start,openWorld,confirmCharacter,creatorSection,cycleCreatorValue,resume,selectedRecipe,selectedBuildingPiece,selectedInventoryItem,ownedInventoryItems.length,inventoryTab,assignInventoryItem,cycleGrass,menuActionIndex]);
+
+  useEffect(()=>{
+    if(screen!=="creator")return;
+    const onKeyDown=(event:KeyboardEvent)=>{
+      if(event.key==="Escape"){setScreen("title");return;}
+      if(event.key==="ArrowUp"){event.preventDefault();setCreatorSection(current=>(current+3)%4);}
+      if(event.key==="ArrowDown"){event.preventDefault();setCreatorSection(current=>(current+1)%4);}
+      if(event.key==="ArrowLeft"){event.preventDefault();cycleCreatorValue(-1);}
+      if(event.key==="ArrowRight"){event.preventDefault();cycleCreatorValue(1);}
+      if(event.key.toLowerCase()==="q")gameRef.current?.rotateCharacterPreview(-1);
+      if(event.key.toLowerCase()==="e")gameRef.current?.rotateCharacterPreview(1);
+      if(event.key==="Enter"){if(creatorSection===3)confirmCharacter();else setCreatorSection(current=>Math.min(3,current+1));}
+    };
+    window.addEventListener("keydown",onKeyDown);return()=>window.removeEventListener("keydown",onKeyDown);
+  },[screen,creatorSection,cycleCreatorValue,confirmCharacter]);
 
   useEffect(()=>{
     if(screen!=="inventory")return;
@@ -265,9 +316,34 @@ export default function GameShell() {
       <div className={`damage-flash ${damageFlash?"show":""}`} onAnimationEnd={()=>setDamageFlash(false)} />
 
       <section className={`screen survival-title ${screen!=="title"?"hidden":""}`}>
-        <div className="survival-enter-wrap">
-          <button className="primary-btn survival-enter-btn" onClick={start}>Entrar no mundo <small>✕</small></button>
+        <div className="wilds-title-copy">
+          <p className="eyebrow">Uma expedição de sobrevivência</p>
+          <h1>Aurora <span>Wilds</span></h1>
+          <p className="title-tagline">Um mundo vivo nasce ao seu redor. Explore, construa um abrigo e sobreviva às criaturas da noite.</p>
+          <div className="survival-features" aria-label="Recursos do jogo"><span><b>∞</b> mundo procedural</span><span><b>⌂</b> construa livremente</span><span><b>◇</b> explore o desconhecido</span></div>
+          <button className="primary-btn survival-enter-btn" onClick={openWorld}>{characterCreated?"Entrar no mundo":"Criar personagem"} <small>✕</small></button>
+          <small className="title-local-note">Progresso salvo neste navegador</small>
         </div>
+      </section>
+
+      <section className={`screen character-creator ${screen!=="creator"?"hidden":""}`}>
+        <header className="creator-heading"><p className="eyebrow">Antes da primeira alvorada</p><h2>Crie seu explorador</h2><p>Este será o seu personagem em Aurora Wilds.</p></header>
+        <aside className="creator-controls">
+          <section className={creatorSection===0?"selected":""} onMouseEnter={()=>setCreatorSection(0)}>
+            <div className="creator-section-title"><span>01</span><div><strong>Cabelo</strong><small>{HAIR_STYLES[appearance.hairStyle].name}</small></div></div>
+            <div className="hair-style-grid" role="radiogroup" aria-label="Modelo de cabelo">{HAIR_STYLES.map((style,index)=><button key={style.id} type="button" role="radio" aria-checked={appearance.hairStyle===index} className={appearance.hairStyle===index?"active":""} onClick={()=>{setCreatorSection(0);updateAppearance({hairStyle:index});}} title={style.name}><span className={`hair-thumb hair-${style.id}`}><i/></span><small>{style.name}</small></button>)}</div>
+          </section>
+          <section className={creatorSection===1?"selected":""} onMouseEnter={()=>setCreatorSection(1)}>
+            <div className="creator-section-title"><span>02</span><div><strong>Tom de pele</strong><small>Escolha uma amostra ou qualquer cor</small></div><label className="custom-color" style={{"--picker-color":appearance.skinColor} as CSSProperties}><input type="color" value={appearance.skinColor} onChange={event=>updateAppearance({skinColor:event.target.value})}/><i/> Personalizar</label></div>
+            <div className="color-swatches">{SKIN_COLORS.map(color=><button key={color} type="button" aria-label={`Pele ${color}`} aria-pressed={appearance.skinColor===color} style={{background:color}} onClick={()=>{setCreatorSection(1);updateAppearance({skinColor:color});}}/>)}</div>
+          </section>
+          <section className={creatorSection===2?"selected":""} onMouseEnter={()=>setCreatorSection(2)}>
+            <div className="creator-section-title"><span>03</span><div><strong>Cor do cabelo</strong><small>Do natural ao fantástico</small></div><label className="custom-color" style={{"--picker-color":appearance.hairColor} as CSSProperties}><input type="color" value={appearance.hairColor} onChange={event=>updateAppearance({hairColor:event.target.value})}/><i/> Personalizar</label></div>
+            <div className="color-swatches">{HAIR_COLORS.map(color=><button key={color} type="button" aria-label={`Cabelo ${color}`} aria-pressed={appearance.hairColor===color} style={{background:color}} onClick={()=>{setCreatorSection(2);updateAppearance({hairColor:color});}}/>)}</div>
+          </section>
+          <button className={`creator-confirm ${creatorSection===3?"selected":""}`} onMouseEnter={()=>setCreatorSection(3)} onClick={confirmCharacter}><span>Pronto para explorar</span><strong>Começar aventura</strong><kbd>✕</kbd></button>
+        </aside>
+        <div className="creator-preview-help"><span><kbd>L1</kbd><kbd>R1</kbd> girar personagem</span><span><kbd>↑ ↓ ← →</kbd> navegar</span><button onClick={()=>setScreen("title")}>Voltar <kbd>○</kbd></button></div>
       </section>
 
       <section className={`screen ${screen!=="paused"?"hidden":""}`}>

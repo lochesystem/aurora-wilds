@@ -25,6 +25,15 @@ export interface PlayerRig {
   offHandGrip: THREE.Group;
   scarf: THREE.Group[];
   antenna: THREE.Group;
+  skinMaterial: THREE.MeshToonMaterial;
+  hairMaterials: [THREE.MeshToonMaterial,THREE.MeshToonMaterial];
+  hairStyles: THREE.Group[];
+}
+
+export interface PlayerAppearance {
+  hairStyle: number;
+  skinColor: string;
+  hairColor: string;
 }
 
 export interface GuardianRig {
@@ -49,7 +58,7 @@ function shadow(mesh: THREE.Mesh) {
  * claro preso e botas de couro. Os nós ganham nome para
  * ficarem legíveis no inspetor; a animação usa as referências do rig.
  */
-export function createPlayerModel(gradientMap?: THREE.Texture): PlayerRig {
+export function createPlayerModel(gradientMap?: THREE.Texture,appearance?:PlayerAppearance): PlayerRig {
   toonGradient=gradientMap;
   const group = new THREE.Group();
   const upperBody = new THREE.Group();upperBody.name="UpperBody";group.add(upperBody);
@@ -80,17 +89,35 @@ export function createPlayerModel(gradientMap?: THREE.Texture): PlayerRig {
   const head = new THREE.Group(); head.position.y=1.46; upperBody.add(head);
   const skull = shadow(new THREE.Mesh(rounded(.46,.5,.44,.17),skin)); head.add(skull);
   const jaw = shadow(new THREE.Mesh(rounded(.34,.2,.36,.1),skin)); jaw.position.set(0,-.19,.02); head.add(jaw);
-  const cap = shadow(new THREE.Mesh(rounded(.5,.42,.48,.19),hair)); cap.position.set(0,.09,-.03); head.add(cap);
   for(const side of [-1,1]){
-    const bang=shadow(new THREE.Mesh(rounded(.16,.3,.1,.05),hair));bang.position.set(side*.16,.13,.21);bang.rotation.z=side*.2;head.add(bang);
-    const sideburn=shadow(new THREE.Mesh(rounded(.09,.36,.24,.05),hairShade));sideburn.position.set(side*.24,-.02,-.02);head.add(sideburn);
     const ear=shadow(new THREE.Mesh(new THREE.ConeGeometry(.07,.24,6),skin));ear.position.set(side*.27,.02,-.05);ear.rotation.set(0,0,-side*1.05);head.add(ear);
     const eye=new THREE.Mesh(rounded(.07,.1,.02,.02),iris);eye.position.set(side*.11,-.02,.225);head.add(eye);
     const brow=new THREE.Mesh(rounded(.1,.028,.02,.01),hairShade);brow.position.set(side*.11,.08,.228);brow.rotation.z=-side*.12;head.add(brow);
   }
-  const fringe = shadow(new THREE.Mesh(rounded(.44,.14,.12,.05),hair)); fringe.position.set(0,.2,.17); fringe.rotation.x=.18; head.add(fringe);
 
-  const antenna = new THREE.Group(); antenna.position.set(0,.12,-.24); head.add(antenna);
+  const hairStyles=Array.from({length:5},(_,index)=>{const style=new THREE.Group();style.name=`HairStyle${index+1}`;head.add(style);return style;});
+  const addHair=(style:number,mesh:THREE.Mesh)=>{shadow(mesh);hairStyles[style].add(mesh);return mesh;};
+  const cap0=addHair(0,new THREE.Mesh(rounded(.5,.42,.48,.19),hair));cap0.position.set(0,.09,-.03);
+  for(const side of [-1,1]){const bang=addHair(0,new THREE.Mesh(rounded(.16,.3,.1,.05),hair));bang.position.set(side*.16,.13,.21);bang.rotation.z=side*.2;const sideburn=addHair(0,new THREE.Mesh(rounded(.09,.36,.24,.05),hairShade));sideburn.position.set(side*.24,-.02,-.02);}
+  const fringe0=addHair(0,new THREE.Mesh(rounded(.44,.14,.12,.05),hair));fringe0.position.set(0,.2,.17);fringe0.rotation.x=.18;
+
+  const cropCap=addHair(1,new THREE.Mesh(rounded(.49,.3,.47,.16),hair));cropCap.position.set(0,.15,-.03);
+  for(const side of [-1,0,1]){const tuft=addHair(1,new THREE.Mesh(new THREE.ConeGeometry(.085,.2,7),side===0?hairShade:hair));tuft.position.set(side*.14,.34,.01);tuft.rotation.z=-side*.3;}
+  const cropFringe=addHair(1,new THREE.Mesh(rounded(.34,.1,.1,.04),hair));cropFringe.position.set(-.04,.2,.2);cropFringe.rotation.z=.12;
+
+  const bobBack=addHair(2,new THREE.Mesh(rounded(.56,.62,.48,.2),hairShade));bobBack.position.set(0,-.03,-.08);
+  const bobCap=addHair(2,new THREE.Mesh(rounded(.51,.38,.49,.18),hair));bobCap.position.set(0,.12,-.015);
+  for(const side of [-1,1]){const lock=addHair(2,new THREE.Mesh(new THREE.CapsuleGeometry(.095,.34,5,8),hair));lock.position.set(side*.255,-.16,.02);lock.rotation.z=side*.08;}
+  const bobFringe=addHair(2,new THREE.Mesh(rounded(.42,.17,.11,.05),hair));bobFringe.position.set(.03,.18,.2);bobFringe.rotation.z=-.12;
+
+  const mohawkBase=addHair(3,new THREE.Mesh(rounded(.46,.18,.45,.09),hairShade));mohawkBase.position.set(0,.18,-.03);
+  for(let index=0;index<5;index++){const spike=addHair(3,new THREE.Mesh(new THREE.ConeGeometry(.105,.34-index*.025,7),hair));spike.position.set(0,.37,.19-index*.095);spike.rotation.x=-.08;}
+
+  const bunsCap=addHair(4,new THREE.Mesh(rounded(.5,.34,.48,.17),hair));bunsCap.position.set(0,.13,-.03);
+  for(const side of [-1,1]){const bun=addHair(4,new THREE.Mesh(new THREE.SphereGeometry(.19,12,9),hairShade));bun.position.set(side*.34,.24,-.03);const curl=addHair(4,new THREE.Mesh(new THREE.TorusGeometry(.12,.045,6,12),hair));curl.position.copy(bun.position);curl.rotation.y=Math.PI/2;}
+  const bunsFringe=addHair(4,new THREE.Mesh(rounded(.4,.13,.11,.05),hair));bunsFringe.position.set(0,.19,.2);
+
+  const antenna = new THREE.Group(); antenna.position.set(0,.12,-.24); hairStyles[0].add(antenna);
   const tieBand = shadow(new THREE.Mesh(new THREE.CylinderGeometry(.06,.06,.07,8),leather)); tieBand.rotation.x=Math.PI/2.4; antenna.add(tieBand);
   const ponytail = shadow(new THREE.Mesh(new THREE.CapsuleGeometry(.07,.26,4,7),hair)); ponytail.position.set(0,-.14,-.1); ponytail.rotation.x=-.34; antenna.add(ponytail);
   const ponytailTip = shadow(new THREE.Mesh(new THREE.ConeGeometry(.06,.2,7),hairShade)); ponytailTip.position.set(0,-.33,-.17); ponytailTip.rotation.x=Math.PI+.34; antenna.add(ponytailTip);
@@ -128,7 +155,17 @@ export function createPlayerModel(gradientMap?: THREE.Texture): PlayerRig {
   }
 
   group.scale.setScalar(1.02);
-  return {group,upperBody,torso,head,leftArm,rightArm,leftForearm,rightForearm,leftHand,rightHand,leftLeg,rightLeg,leftShin,rightShin,handSocket,weaponRoot,backWeaponRoots,offHandGrip,scarf,antenna};
+  const rig={group,upperBody,torso,head,leftArm,rightArm,leftForearm,rightForearm,leftHand,rightHand,leftLeg,rightLeg,leftShin,rightShin,handSocket,weaponRoot,backWeaponRoots,offHandGrip,scarf,antenna,skinMaterial:skin,hairMaterials:[hair,hairShade] as [THREE.MeshToonMaterial,THREE.MeshToonMaterial],hairStyles};
+  applyPlayerAppearance(rig,appearance??{hairStyle:0,skinColor:"#f2c79c",hairColor:"#e6c469"});
+  return rig;
+}
+
+export function applyPlayerAppearance(rig:PlayerRig,appearance:PlayerAppearance){
+  const style=THREE.MathUtils.clamp(Math.floor(appearance.hairStyle),0,rig.hairStyles.length-1);
+  rig.skinMaterial.color.set(appearance.skinColor);
+  rig.hairMaterials[0].color.set(appearance.hairColor);
+  rig.hairMaterials[1].color.copy(new THREE.Color(appearance.hairColor).multiplyScalar(.68));
+  rig.hairStyles.forEach((group,index)=>{group.visible=index===style;});
 }
 
 function createEquipmentModel(item:Exclude<Equipment,"hands">){

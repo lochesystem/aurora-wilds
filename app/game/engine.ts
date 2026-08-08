@@ -4,7 +4,8 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
-import { animatePlayerModel, createPlayerModel, PLAYER_MODEL_GROUND_OFFSET, setPlayerEquipment, type Equipment, type PlayerRig } from "./models";
+import { animatePlayerModel, applyPlayerAppearance, createPlayerModel, PLAYER_MODEL_GROUND_OFFSET, setPlayerEquipment, type Equipment, type PlayerAppearance, type PlayerRig } from "./models";
+import { loadCharacterAppearance } from "./character-customization.js";
 import { attackDuration, attackEquipmentForStep, attackImpact, attackStyleFor } from "./attack-pose.js";
 import { lerpAngle, stepPlanarVelocity } from "./motion.js";
 import type { GameSettings } from "./settings";
@@ -152,6 +153,7 @@ export class AuroraGame {
   private listeners: Array<() => void> = [];
   private mouseDown = false;
   private paused = true;
+  private creatorPreview = false;
   private initialized = false;
   private destroyed = false;
   private grounded = false;
@@ -243,6 +245,9 @@ export class AuroraGame {
   private sunDirection = new THREE.Vector3(-0.45, 0.62, -0.65).normalize();
   private sun = new THREE.DirectionalLight(0xffefc5, 2.4);
   private hemi = new THREE.HemisphereLight(0xcfe6ff, 0x51663f, 1.65);
+  private creatorAmbient = new THREE.AmbientLight(0xfff0d5,0);
+  private creatorKey = new THREE.DirectionalLight(0xffe7bd,0);
+  private creatorRim = new THREE.DirectionalLight(0x79d9d3,0);
 
   constructor(private canvas: HTMLCanvasElement, private callbacks: Callbacks) {}
 
@@ -297,8 +302,9 @@ export class AuroraGame {
     this.sun.shadow.normalBias = 0.02;
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
+    this.scene.add(this.creatorAmbient,this.creatorKey,this.creatorKey.target,this.creatorRim,this.creatorRim.target);
 
-    this.playerRig = createPlayerModel(this.toonGradient);
+    this.playerRig = createPlayerModel(this.toonGradient,loadCharacterAppearance());
     this.playerVisual = this.playerRig.group;
     this.player.add(this.playerVisual);
     this.scene.add(this.player);
@@ -652,7 +658,7 @@ export class AuroraGame {
 
   private spawnNightRaid(eventId:string){
     const position=this.player.position,count=eventId==="bloodMoon"?3:eventId==="pack"?2:1,chunkX=worldToChunk(position.x),chunkZ=worldToChunk(position.z),chunk=this.loadedChunks.get(chunkKey(chunkX,chunkZ));if(!chunk)return;
-    for(let index=0;index<count;index+=1){const id=`raid:${this.survivedNights+1}:${index}`;if(this.defeatedFauna.has(id)||chunk.animals.some(animal=>animal.id===id))continue;const angle=index/count*Math.PI*2+1.1;let x=position.x+Math.sin(angle)*(14+index*2),z=position.z+Math.cos(angle)*(14+index*2);if(isWaterAt(x,z))z=riverCenterAt(x)+(z<riverCenterAt(x)?-5:5);const kind:AnimalKind=eventId==="bloodMoon"&&index===0?"bear":"predator",stats=FAUNA_STATS[kind],y=terrainHeightAt(x,z),group=this.createAnimalModel(kind);group.position.set(x,y,z);this.scene.add(group);chunk.animals.push({id,kind,x,y,z,homeX:x,homeZ:z,heading:angle+Math.PI,group,health:stats.health,maxHealth:stats.health,provoked:30,attackCooldown:1,wanderTimer:0,hitFlash:0,deadTimer:0,phase:index*1.7});}
+    for(let index=0;index<count;index+=1){const id=`raid:${this.survivedNights+1}:${index}`;if(this.defeatedFauna.has(id)||chunk.animals.some(animal=>animal.id===id))continue;const angle=index/count*Math.PI*2+1.1,x=position.x+Math.sin(angle)*(14+index*2);let z=position.z+Math.cos(angle)*(14+index*2);if(isWaterAt(x,z))z=riverCenterAt(x)+(z<riverCenterAt(x)?-5:5);const kind:AnimalKind=eventId==="bloodMoon"&&index===0?"bear":"predator",stats=FAUNA_STATS[kind],y=terrainHeightAt(x,z),group=this.createAnimalModel(kind);group.position.set(x,y,z);this.scene.add(group);chunk.animals.push({id,kind,x,y,z,homeX:x,homeZ:z,heading:angle+Math.PI,group,health:stats.health,maxHealth:stats.health,provoked:30,attackCooldown:1,wanderTimer:0,hitFlash:0,deadTimer:0,phase:index*1.7});}
   }
 
   private updateNearestStructures(){
@@ -1125,6 +1131,24 @@ export class AuroraGame {
   }
 
   setPaused(value:boolean){this.paused=value;if(!value)this.clock.getDelta();}
+  applyCharacterAppearance(appearance:PlayerAppearance){if(this.playerRig)applyPlayerAppearance(this.playerRig,appearance);}
+  setCreatorPreview(value:boolean){
+    this.creatorPreview=value;
+    this.sun.castShadow=!value;
+    this.creatorAmbient.intensity=value?1.15:0;
+    this.creatorKey.intensity=value?2.1:0;
+    this.creatorRim.intensity=value?.7:0;
+    if(!value||!this.playerRig)return;
+    this.playerVisual.rotation.y=0;
+    const target=this.player.position.clone().add(new THREE.Vector3(0,1.05,0));
+    this.creatorKey.position.copy(target).add(new THREE.Vector3(3.2,3.8,4.4));
+    this.creatorKey.target.position.copy(target);
+    this.creatorRim.position.copy(target).add(new THREE.Vector3(-3,2.2,-2.4));
+    this.creatorRim.target.position.copy(target);
+    this.camera.position.copy(target).add(new THREE.Vector3(0,.18,3.7));
+    this.camera.lookAt(target);
+  }
+  rotateCharacterPreview(direction:number){if(this.creatorPreview)this.playerVisual.rotation.y+=direction*.34;}
   selectHotbarSlot(index:number,haptic=false){const next=(index+9)%9;if(next===this.selectedSlot)return;const previous=this.currentEquipment();this.selectedSlot=next;const equipped=this.currentEquipment();if(equipped!=="hands")this.weaponSlots=rememberWeapon(this.weaponSlots,equipped,previous);if(haptic)this.pulse(.1,28);this.emitSnapshot();}
   setHotbarSlot(index:number,itemId:string){const next=assignHotbarItem(this.hotbarSlots,index,itemId);if(next.every((item,slot)=>item===this.hotbarSlots[slot]))return;const previous=this.currentEquipment();this.hotbarSlots=next;this.selectedSlot=index;const equipped=this.currentEquipment();if(equipped!=="hands")this.weaponSlots=rememberWeapon(this.weaponSlots,equipped,previous);this.pulse(.12,38);this.saveGame();this.emitSnapshot();}
   equipWeapon(itemId:string){if(!CARRIED_EQUIPMENT_IDS.includes(itemId)||!this.ownsEquipment(itemId)){this.callbacks.onToast("Selecione uma ferramenta ou arma fabricada");return false;}this.weaponSlots=rememberWeapon(this.weaponSlots,itemId,this.currentEquipment());this.callbacks.onToast(`${itemId==="axe"?"Machado":itemId==="pickaxe"?"Picareta":itemId==="hammer"?"Martelo":"Lança"} equipado`);this.pulse(.14,45);this.saveGame();this.emitSnapshot();return true;}
