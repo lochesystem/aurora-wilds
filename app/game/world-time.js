@@ -17,3 +17,9 @@ export function worldTimeAt(elapsedSeconds){
   const minutes=String(roundedMinutes%60).padStart(2,"0");
   return{fraction:totalMinutes/(24*60),isNight,timeLabel:`${hours}:${minutes}`};
 }
+
+export function nextDawnAt(elapsedSeconds){
+  const elapsed=((elapsedSeconds%WORLD_CYCLE_SECONDS)+WORLD_CYCLE_SECONDS)%WORLD_CYCLE_SECONDS;
+  if(elapsed<DAY_SECONDS)return elapsedSeconds;
+  return elapsedSeconds+(WORLD_CYCLE_SECONDS-elapsed);
+}

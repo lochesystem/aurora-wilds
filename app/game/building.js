@@ -4,7 +4,7 @@ export const BUILDING_PIECES = [
   {id:"door",name:"Portal",description:"Entrada aberta para o acampamento.",cost:{wood:4,stone:0},size:[3,2.7,.22],yOffset:1.35,shelter:false},
   {id:"roof",name:"Telhado",description:"Protege uma área contra o frio.",cost:{wood:4,stone:0},size:[3.3,.25,3.3],yOffset:2.78,shelter:true},
   {id:"chest",name:"Baú",description:"Guarda e devolve recursos coletados.",cost:{wood:4,stone:1},size:[1.25,.8,.75],yOffset:.4,shelter:false},
-  {id:"bed",name:"Cama",description:"Define o ponto de retorno da expedição.",cost:{wood:3,stone:0},size:[1.2,.35,2.2],yOffset:.18,shelter:false},
+  {id:"bed",name:"Cama",description:"Permite dormir até o amanhecer e define o ponto de retorno.",cost:{wood:3,stone:0},size:[1.2,.35,2.2],yOffset:.18,shelter:false},
 ];
 
 export function getBuildingPiece(pieceId){return BUILDING_PIECES.find(piece=>piece.id===pieceId)??null;}

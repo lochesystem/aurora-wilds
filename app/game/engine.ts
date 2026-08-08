@@ -14,11 +14,11 @@ import { normalizeSave, SAVE_KEY, SAVE_VERSION } from "./save-game.js";
 import { harvestHit, RESOURCE_HEALTH } from "./harvesting.js";
 import { finishCombo, requestCombo } from "./combat-combo.js";
 import { FAUNA_STATS, faunaForChunk, faunaHitDamage, faunaIntent } from "./fauna.js";
-import { DEFAULT_HOTBAR, assignHotbarItem, normalizeHotbarSlots } from "./inventory.js";
+import { CARRIED_EQUIPMENT_IDS, DEFAULT_EQUIPMENT, DEFAULT_HOTBAR, DEFAULT_WEAPON_SLOTS, assignHotbarItem, normalizeEquipmentSlots, normalizeHotbarSlots, normalizeWeaponSlots, rememberWeapon, setWeaponSlot as assignWeaponSlot } from "./inventory.js";
 import { createFlowerField, createFlowerGeometry, createGrassField, createGrassGeometry, createGrassMaterial, updateGrassInteraction } from "./grass";
 import { createSky, createToonGradient, PALETTE, skyPalette, updateWind, type SkyRig } from "./art";
 import { createBerryBush, createFoliageAssets, createRock, createTree, disposeFoliageAssets, seededRandom, treeVariantFor, type FoliageAssets } from "./foliage";
-import { worldTimeAt } from "./world-time.js";
+import { nextDawnAt, worldTimeAt } from "./world-time.js";
 import {
   CHUNK_LOAD_RADIUS,
   CHUNK_SEGMENTS,
@@ -48,6 +48,10 @@ export interface GameSnapshot {
   interaction: string;
   selectedSlot: number;
   hotbarSlots: string[];
+  equipmentSlots: Record<string,string>;
+  weaponSlots: string[];
+  coldProtection: number;
+  heatProtection: number;
   axeDurability: number;
   pickaxeDurability: number;
   spearDurability: number;
@@ -95,7 +99,7 @@ type PendingBuilding = {definition:BuildingDefinition;position:THREE.Vector3;rot
 
 const EMPTY_SNAPSHOT: GameSnapshot = {
   health: 100, hunger: 78, berries: 0, rawMeat:0, cookedMeat:0, wood: 0, stone: 0,
-  distance: 0, chunks: 0, biome: "Campos de Aurora", interaction: "", selectedSlot:0,hotbarSlots:[...DEFAULT_HOTBAR],
+  distance: 0, chunks: 0, biome: "Campos de Aurora", interaction: "", selectedSlot:0,hotbarSlots:[...DEFAULT_HOTBAR],equipmentSlots:{...DEFAULT_EQUIPMENT},weaponSlots:[...DEFAULT_WEAPON_SLOTS],coldProtection:0,heatProtection:0,
   axeDurability:0,pickaxeDurability:0,spearDurability:0,campfireKits:0,timeLabel:"07:00",isNight:false,temperature:18,nearFire:false,survivedNights:0,
   hammer:false,buildingPiece:"",buildingValid:false,buildingSnap:"",buildingIssue:"",sheltered:false,comboStep:0,comboBuffered:0,gamepad: "",
 };
@@ -155,6 +159,7 @@ export class AuroraGame {
   private buildingSnapKey = "";
   private pendingBuilding:PendingBuilding|null = null;
   private nearestChest: Structure | null = null;
+  private nearestBed: Structure | null = null;
   private respawnPosition: THREE.Vector3 | null = null;
   private spawnPosition = new THREE.Vector3(0,terrainHeightAt(0,0)+2.2,0);
   private pendingCampfires: Array<{x:number;y:number;z:number}> = [];
@@ -180,6 +185,8 @@ export class AuroraGame {
   private equippedVisual = "";
   private selectedSlot = 0;
   private hotbarSlots=[...DEFAULT_HOTBAR];
+  private equipmentSlots={...DEFAULT_EQUIPMENT};
+  private weaponSlots=[...DEFAULT_WEAPON_SLOTS];
   private gamepadIndex: number | null = null;
   private gamepadButtons = new Set<number>();
   private lastGamepadName = "";
@@ -475,13 +482,14 @@ export class AuroraGame {
     this.updateAnimals(dt);
     this.updateNearestResource();
     this.updateNearestAnimal();
-    this.updateNearestChest();
+    this.updateNearestStructures();
     this.updateCampfires(dt);
     this.updateResourceAnimations(dt);this.updateResourceDrops(dt);
     const primaryAction=this.pressed.has("q")||this.consumePad(3);
     if(this.buildingDefinition){this.updateBuildingPreview();if(primaryAction)this.placeBuilding();}
     else{
       if(this.pressed.has("e")||this.consumePad(2)){if(this.nearestChest)this.interactChest(this.nearestChest);else if(this.nearestResource?.kind==="berry")this.collect(this.nearestResource);else if(this.nearestResource)this.callbacks.onToast("Golpeie o recurso para extrair material");else if(this.rawMeat>0&&this.getWorldState().nearFire)this.cookMeat();}
+      if(this.pressed.has("f")||this.consumePad(1))this.sleepUntilDawn();
       if(primaryAction){if(this.nearestAnimal)this.attackAnimal(this.nearestAnimal);else if(this.nearestResource&&this.nearestResource.kind!=="berry")this.attackResource(this.nearestResource);else this.useSelectedItem();}
     }
     this.hunger=Math.max(0,this.hunger-dt*(sprinting?.2:.11));
@@ -529,8 +537,14 @@ export class AuroraGame {
     }
   }
 
-  private updateNearestChest(){
-    let nearest:Structure|null=null,distance=2.5;for(const structure of this.structures){if(structure.id!=="chest")continue;const next=Math.hypot(this.player.position.x-structure.position.x,this.player.position.z-structure.position.z);if(next<distance){nearest=structure;distance=next;}}this.nearestChest=nearest;
+  private updateNearestStructures(){
+    let chest:Structure|null=null,bed:Structure|null=null,chestDistance=2.5,bedDistance=2.8;
+    for(const structure of this.structures){
+      const distance=Math.hypot(this.player.position.x-structure.position.x,this.player.position.z-structure.position.z);
+      if(structure.id==="chest"&&distance<chestDistance){chest=structure;chestDistance=distance;}
+      if(structure.id==="bed"&&distance<bedDistance){bed=structure;bedDistance=distance;}
+    }
+    this.nearestChest=chest;this.nearestBed=bed;
   }
 
   private interactChest(chest:Structure){
@@ -538,6 +552,15 @@ export class AuroraGame {
     if(carried>0){storage.berries+=this.berries;storage.wood+=this.wood;storage.stone+=this.stone;this.berries=0;this.wood=0;this.stone=0;this.callbacks.onToast("Recursos guardados no baú");}
     else if(storage.berries+storage.wood+storage.stone>0){this.berries+=storage.berries;this.wood+=storage.wood;this.stone+=storage.stone;storage.berries=0;storage.wood=0;storage.stone=0;this.callbacks.onToast("Recursos retirados do baú");}
     else this.callbacks.onToast("O baú está vazio");this.saveGame();this.emitSnapshot();
+  }
+
+  private sleepUntilDawn(){
+    const worldState=this.getWorldState();
+    if(!this.nearestBed&&!worldState.nearFire){this.callbacks.onToast("Aproxime-se de uma cama ou fogueira para dormir");return;}
+    if(!worldState.isNight){this.callbacks.onToast("Ainda está claro — descanse quando a noite chegar");return;}
+    this.survivalTime=nextDawnAt(this.survivalTime);this.health=Math.min(100,this.health+18);this.hunger=Math.max(0,this.hunger-6);
+    this.callbacks.onToast(this.nearestBed?"Você dormiu na cama até o amanhecer":"Você descansou junto à fogueira até o amanhecer");
+    this.pulse(.45,180);this.saveGame();this.emitSnapshot();
   }
 
   private collect(resource: ResourceObject) {
@@ -555,7 +578,9 @@ export class AuroraGame {
     return"hands" as const;
   }
 
-  private updateEquippedVisual(){const comboHolding=this.attackTime>0||this.comboResetTimer>0||this.comboBuffered>0;const equipped=comboHolding?this.attackEquipment:this.currentEquipment();if(equipped===this.equippedVisual)return;this.equippedVisual=equipped;setPlayerEquipment(this.playerRig,equipped);}
+  private ownsEquipment(item:string){return item==="axe"?this.axeDurability>0:item==="pickaxe"?this.pickaxeDurability>0:item==="hammer"?this.hammer:item==="spear"?this.spearDurability>0:false;}
+  private carriedEquipment(){return this.weaponSlots.filter(item=>this.ownsEquipment(item)) as Equipment[];}
+  private updateEquippedVisual(){const comboHolding=this.attackTime>0||this.comboResetTimer>0||this.comboBuffered>0;const equipped=comboHolding?this.attackEquipment:this.currentEquipment(),carried=this.carriedEquipment();const key=`${equipped}:${carried.join(",")}`;if(key===this.equippedVisual)return;this.equippedVisual=key;setPlayerEquipment(this.playerRig,equipped,carried);}
 
   private updateAttackState(dt:number){
     const wasAttacking=this.attackTime>0;this.attackTime=Math.max(0,this.attackTime-dt);
@@ -674,6 +699,7 @@ export class AuroraGame {
     if(recipeId==="hammer")this.hammer=true;
     if(recipeId==="spear")this.spearDurability=100;
     if(recipeId==="campfire")this.campfireKits+=1;
+    if(CARRIED_EQUIPMENT_IDS.includes(recipeId))this.weaponSlots=rememberWeapon(this.weaponSlots,recipeId,this.currentEquipment());
     this.callbacks.onToast(`${recipe.name} fabricado`);this.pulse(.35,90);this.saveGame();this.emitSnapshot();return true;
   }
 
@@ -700,7 +726,8 @@ export class AuroraGame {
       const save=normalizeSave(JSON.parse(raw));if(!save)return false;
       this.health=save.health;this.hunger=save.hunger;this.berries=save.berries;this.rawMeat=save.rawMeat;this.cookedMeat=save.cookedMeat;this.wood=save.wood;this.stone=save.stone;
       this.axeDurability=save.axeDurability;this.pickaxeDurability=save.pickaxeDurability;this.spearDurability=save.spearDurability;this.hammer=save.hammer;
-      this.campfireKits=save.campfireKits;this.survivalTime=save.survivalTime;this.survivedNights=save.survivedNights;this.selectedSlot=save.selectedSlot;this.hotbarSlots=normalizeHotbarSlots(save.hotbarSlots);
+      this.campfireKits=save.campfireKits;this.survivalTime=save.survivalTime;this.survivedNights=save.survivedNights;this.selectedSlot=save.selectedSlot;this.hotbarSlots=normalizeHotbarSlots(save.hotbarSlots);this.equipmentSlots=normalizeEquipmentSlots(save.equipmentSlots);this.weaponSlots=normalizeWeaponSlots(save.weaponSlots);
+      const restoredEquipment=this.currentEquipment();if(restoredEquipment!=="hands")this.weaponSlots=rememberWeapon(this.weaponSlots,restoredEquipment);
       this.collectedResources=new Set(save.collectedResources);this.defeatedFauna=new Set(save.defeatedFauna);this.resourceDamage=new Map(Object.entries(save.resourceDamage));this.pendingCampfires=save.campfires;this.pendingStructures=save.structures;
       this.spawnPosition.set(save.position.x,save.position.y,save.position.z);
       this.respawnPosition=save.respawn?new THREE.Vector3(save.respawn.x,save.respawn.y,save.respawn.z):null;
@@ -720,7 +747,7 @@ export class AuroraGame {
     try{window.localStorage.setItem(SAVE_KEY,JSON.stringify({
       version:SAVE_VERSION,position:{x:position.x,y:position.y,z:position.z},health:this.health,hunger:this.hunger,
       berries:this.berries,rawMeat:this.rawMeat,cookedMeat:this.cookedMeat,wood:this.wood,stone:this.stone,axeDurability:this.axeDurability,pickaxeDurability:this.pickaxeDurability,spearDurability:this.spearDurability,
-      hammer:this.hammer,campfireKits:this.campfireKits,survivalTime:this.survivalTime,survivedNights:this.survivedNights,selectedSlot:this.selectedSlot,hotbarSlots:this.hotbarSlots,
+      hammer:this.hammer,campfireKits:this.campfireKits,survivalTime:this.survivalTime,survivedNights:this.survivedNights,selectedSlot:this.selectedSlot,hotbarSlots:this.hotbarSlots,equipmentSlots:this.equipmentSlots,weaponSlots:this.weaponSlots,
       collectedResources:[...this.collectedResources],defeatedFauna:[...this.defeatedFauna],resourceDamage:Object.fromEntries(this.resourceDamage),campfires:this.campfires.map(fire=>({x:fire.position.x,y:fire.position.y,z:fire.position.z})),
       structures:this.structures.map(structure=>({id:structure.id,x:structure.position.x,y:structure.position.y,z:structure.position.z,rotation:structure.rotation,storage:structure.storage})),
       respawn:this.respawnPosition?{x:this.respawnPosition.x,y:this.respawnPosition.y,z:this.respawnPosition.z}:null,
@@ -777,7 +804,7 @@ export class AuroraGame {
     if(!this.pendingBuilding)return;
     const {definition,position,rotation}=this.pendingBuilding;this.pendingBuilding=null;
     this.wood-=definition.cost.wood;this.stone-=definition.cost.stone;this.addStructure(definition,position,rotation);
-    if(definition.id==="bed"){this.respawnPosition=new THREE.Vector3(position.x,position.y+1.6,position.z);this.callbacks.onToast("Cama pronta — ponto de retorno definido");}
+    if(definition.id==="bed"){this.respawnPosition=new THREE.Vector3(position.x,position.y+1.6,position.z);this.callbacks.onToast("Cama pronta — durma à noite com F ou ○");}
     else this.callbacks.onToast(`${definition.name} construída`);
     this.pulse(.45,110);this.cancelBuilding(false);this.saveGame();this.emitSnapshot();
   }
@@ -881,14 +908,15 @@ export class AuroraGame {
   private emitSnapshot() {
     const position=this.playerBody?.translation()??{x:0,y:0,z:0};
     const worldState=this.getWorldState();
-    const interaction=this.nearestAnimal?`${this.lastGamepadName?"△":"Q"} · Atacar ${FAUNA_STATS[this.nearestAnimal.kind].name} · ${this.nearestAnimal.health}/${this.nearestAnimal.maxHealth}`:this.nearestChest?`${this.lastGamepadName?"□":"E"} · Guardar ou retirar recursos`:this.nearestResource?this.nearestResource.kind==="berry"?`${this.lastGamepadName?"□":"E"} · Coletar frutos`:`${this.lastGamepadName?"△":"Q"} · Golpear ${this.nearestResource.kind==="wood"?"árvore":"rocha"} · ${this.nearestResource.health}/${this.nearestResource.maxHealth}`:this.rawMeat>0&&worldState.nearFire?`${this.lastGamepadName?"□":"E"} · Assar carne crua`:"";
+    const sleepPrompt=worldState.isNight&&(this.nearestBed||worldState.nearFire)?`${this.lastGamepadName?"○":"F"} · Dormir até o amanhecer`:"";
+    const interaction=this.nearestAnimal?`${this.lastGamepadName?"△":"Q"} · Atacar ${FAUNA_STATS[this.nearestAnimal.kind].name} · ${this.nearestAnimal.health}/${this.nearestAnimal.maxHealth}`:this.nearestChest?`${this.lastGamepadName?"□":"E"} · Guardar ou retirar recursos`:this.nearestResource?this.nearestResource.kind==="berry"?`${this.lastGamepadName?"□":"E"} · Coletar frutos`:`${this.lastGamepadName?"△":"Q"} · Golpear ${this.nearestResource.kind==="wood"?"árvore":"rocha"} · ${this.nearestResource.health}/${this.nearestResource.maxHealth}`:[this.rawMeat>0&&worldState.nearFire?`${this.lastGamepadName?"□":"E"} · Assar carne crua`:"",sleepPrompt].filter(Boolean).join("   ·   ");
     const height=terrainHeightAt(position.x,position.z);
-    this.callbacks.onSnapshot({health:Math.round(this.health),hunger:Math.round(this.hunger),berries:this.berries,rawMeat:this.rawMeat,cookedMeat:this.cookedMeat,wood:this.wood,stone:this.stone,distance:Math.round(Math.hypot(position.x,position.z)),chunks:this.loadedChunks.size,biome:height>2.6?"Terras Altas":height<-1.8?"Vale Nebuloso":"Campos de Aurora",interaction,selectedSlot:this.selectedSlot,hotbarSlots:[...this.hotbarSlots],axeDurability:this.axeDurability,pickaxeDurability:this.pickaxeDurability,spearDurability:this.spearDurability,campfireKits:this.campfireKits,timeLabel:worldState.timeLabel,isNight:worldState.isNight,temperature:worldState.temperature,nearFire:worldState.nearFire,survivedNights:this.survivedNights,hammer:this.hammer,buildingPiece:this.buildingDefinition?.name??"",buildingValid:this.buildingValid,buildingSnap:this.buildingSnap,buildingIssue:this.buildingIssue,sheltered:worldState.sheltered,comboStep:this.comboStep,comboBuffered:this.comboBuffered,gamepad:this.lastGamepadName});
+    this.callbacks.onSnapshot({health:Math.round(this.health),hunger:Math.round(this.hunger),berries:this.berries,rawMeat:this.rawMeat,cookedMeat:this.cookedMeat,wood:this.wood,stone:this.stone,distance:Math.round(Math.hypot(position.x,position.z)),chunks:this.loadedChunks.size,biome:height>2.6?"Terras Altas":height<-1.8?"Vale Nebuloso":"Campos de Aurora",interaction,selectedSlot:this.selectedSlot,hotbarSlots:[...this.hotbarSlots],equipmentSlots:{...this.equipmentSlots},weaponSlots:[...this.weaponSlots],coldProtection:0,heatProtection:0,axeDurability:this.axeDurability,pickaxeDurability:this.pickaxeDurability,spearDurability:this.spearDurability,campfireKits:this.campfireKits,timeLabel:worldState.timeLabel,isNight:worldState.isNight,temperature:worldState.temperature,nearFire:worldState.nearFire,survivedNights:this.survivedNights,hammer:this.hammer,buildingPiece:this.buildingDefinition?.name??"",buildingValid:this.buildingValid,buildingSnap:this.buildingSnap,buildingIssue:this.buildingIssue,sheltered:worldState.sheltered,comboStep:this.comboStep,comboBuffered:this.comboBuffered,gamepad:this.lastGamepadName});
   }
 
   reset() {
     if(!this.world)return;
-    this.health=EMPTY_SNAPSHOT.health; this.hunger=EMPTY_SNAPSHOT.hunger; this.berries=0;this.rawMeat=0;this.cookedMeat=0; this.wood=0; this.stone=0;this.axeDurability=0;this.pickaxeDurability=0;this.spearDurability=0;this.campfireKits=0;this.hammer=false;this.survivalTime=0;this.wasNight=false;this.survivedNights=0;this.respawnPosition=null;this.hotbarSlots=[...DEFAULT_HOTBAR];
+    this.health=EMPTY_SNAPSHOT.health; this.hunger=EMPTY_SNAPSHOT.hunger; this.berries=0;this.rawMeat=0;this.cookedMeat=0; this.wood=0; this.stone=0;this.axeDurability=0;this.pickaxeDurability=0;this.spearDurability=0;this.campfireKits=0;this.hammer=false;this.survivalTime=0;this.wasNight=false;this.survivedNights=0;this.respawnPosition=null;this.hotbarSlots=[...DEFAULT_HOTBAR];this.equipmentSlots={...DEFAULT_EQUIPMENT};this.weaponSlots=[...DEFAULT_WEAPON_SLOTS];
     this.verticalVelocity=0; this.horizontalVelocity.set(0,0,0); this.grounded=false;this.attackTime=0;this.attackEquipment="hands";this.comboStep=0;this.comboBuffered=0;this.comboResetTimer=0;this.attackTarget=null;this.pendingBuilding=null;this.collectedResources.clear();this.defeatedFauna.clear();this.resourceDamage.clear();
     const y=terrainHeightAt(0,0)+2.2; this.playerBody.setTranslation({x:0,y,z:0},true); this.playerBody.setNextKinematicTranslation({x:0,y,z:0}); this.player.position.set(0,y-.93+PLAYER_MODEL_GROUND_OFFSET,0);
     this.grassTrail.set(0,y,0);
@@ -896,8 +924,10 @@ export class AuroraGame {
   }
 
   setPaused(value:boolean){this.paused=value;if(!value)this.clock.getDelta();}
-  selectHotbarSlot(index:number,haptic=false){const next=(index+9)%9;if(next===this.selectedSlot)return;this.selectedSlot=next;if(haptic)this.pulse(.1,28);this.emitSnapshot();}
-  setHotbarSlot(index:number,itemId:string){const next=assignHotbarItem(this.hotbarSlots,index,itemId);if(next.every((item,slot)=>item===this.hotbarSlots[slot]))return;this.hotbarSlots=next;this.selectedSlot=index;this.pulse(.12,38);this.saveGame();this.emitSnapshot();}
+  selectHotbarSlot(index:number,haptic=false){const next=(index+9)%9;if(next===this.selectedSlot)return;const previous=this.currentEquipment();this.selectedSlot=next;const equipped=this.currentEquipment();if(equipped!=="hands")this.weaponSlots=rememberWeapon(this.weaponSlots,equipped,previous);if(haptic)this.pulse(.1,28);this.emitSnapshot();}
+  setHotbarSlot(index:number,itemId:string){const next=assignHotbarItem(this.hotbarSlots,index,itemId);if(next.every((item,slot)=>item===this.hotbarSlots[slot]))return;const previous=this.currentEquipment();this.hotbarSlots=next;this.selectedSlot=index;const equipped=this.currentEquipment();if(equipped!=="hands")this.weaponSlots=rememberWeapon(this.weaponSlots,equipped,previous);this.pulse(.12,38);this.saveGame();this.emitSnapshot();}
+  equipWeapon(itemId:string){if(!CARRIED_EQUIPMENT_IDS.includes(itemId)||!this.ownsEquipment(itemId)){this.callbacks.onToast("Selecione uma ferramenta ou arma fabricada");return false;}this.weaponSlots=rememberWeapon(this.weaponSlots,itemId,this.currentEquipment());this.callbacks.onToast(`${itemId==="axe"?"Machado":itemId==="pickaxe"?"Picareta":itemId==="hammer"?"Martelo":"Lança"} equipado`);this.pulse(.14,45);this.saveGame();this.emitSnapshot();return true;}
+  setWeaponSlot(index:number,itemId:string){if(!CARRIED_EQUIPMENT_IDS.includes(itemId)||!this.ownsEquipment(itemId))return false;this.weaponSlots=assignWeaponSlot(this.weaponSlots,index,itemId);this.pulse(.12,38);this.saveGame();this.emitSnapshot();return true;}
   applySettings(settings:GameSettings){const grassChanged=this.settings?.grassAmount!==settings.grassAmount;this.settings=settings;if(!this.renderer)return;const ratio=settings.quality==="high"?Math.min(devicePixelRatio,2):settings.quality==="medium"?Math.min(devicePixelRatio,1.5):1;this.renderer.setPixelRatio(ratio);this.renderer.shadowMap.enabled=settings.shadows;this.bloom.enabled=settings.bloom;if(grassChanged)this.rebuildGrass();this.resize();}
   private updateGamepad(){if(!this.settings?.gamepadEnabled)return;const pads=navigator.getGamepads?.()??[];let pad=this.gamepadIndex===null?null:pads[this.gamepadIndex];if(!pad?.connected)pad=Array.from(pads).find(Boolean)??null;this.gamepadIndex=pad?.index??null;const next=new Set<number>();pad?.buttons.forEach((button,index)=>{if(button.pressed||button.value>.55)next.add(index)});for(const index of next)if(!this.gamepadButtons.has(index))this.pressed.add(`pad-${index}`);this.gamepadButtons=next;const name=pad?(/dualsense|wireless controller/i.test(pad.id)?"DualSense conectado":`${pad.id.slice(0,22)} conectado`):"";if(name!==this.lastGamepadName){this.lastGamepadName=name;this.emitSnapshot();}}
   private getPad(){return this.gamepadIndex===null?null:navigator.getGamepads?.()[this.gamepadIndex]??null;}

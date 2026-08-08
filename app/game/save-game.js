@@ -1,4 +1,4 @@
-import { normalizeHotbarSlots } from "./inventory.js";
+import { normalizeEquipmentSlots, normalizeHotbarSlots, normalizeWeaponSlots } from "./inventory.js";
 
 export const SAVE_KEY="aurora-wilds-save-v1";
 export const SAVE_VERSION=1;
@@ -15,7 +15,7 @@ export function normalizeSave(raw){
     health:Math.min(100,nonNegative(raw.health,100)),hunger:Math.min(100,nonNegative(raw.hunger,78)),
     berries:Math.floor(nonNegative(raw.berries)),rawMeat:Math.floor(nonNegative(raw.rawMeat)),cookedMeat:Math.floor(nonNegative(raw.cookedMeat)),wood:Math.floor(nonNegative(raw.wood)),stone:Math.floor(nonNegative(raw.stone)),
     axeDurability:Math.min(100,nonNegative(raw.axeDurability)),pickaxeDurability:Math.min(100,nonNegative(raw.pickaxeDurability)),spearDurability:Math.min(100,nonNegative(raw.spearDurability)),hammer:Boolean(raw.hammer),campfireKits:Math.floor(nonNegative(raw.campfireKits)),
-    survivalTime:nonNegative(raw.survivalTime),survivedNights:Math.floor(nonNegative(raw.survivedNights)),selectedSlot:Math.max(0,Math.min(8,Math.floor(nonNegative(raw.selectedSlot)))),hotbarSlots:normalizeHotbarSlots(raw.hotbarSlots),
+    survivalTime:nonNegative(raw.survivalTime),survivedNights:Math.floor(nonNegative(raw.survivedNights)),selectedSlot:Math.max(0,Math.min(8,Math.floor(nonNegative(raw.selectedSlot)))),hotbarSlots:normalizeHotbarSlots(raw.hotbarSlots),equipmentSlots:normalizeEquipmentSlots(raw.equipmentSlots),weaponSlots:normalizeWeaponSlots(raw.weaponSlots),
     collectedResources:Array.isArray(raw.collectedResources)?raw.collectedResources.filter(value=>typeof value==="string").slice(0,5000):[],
     defeatedFauna:Array.isArray(raw.defeatedFauna)?raw.defeatedFauna.filter(value=>typeof value==="string").slice(0,5000):[],
     resourceDamage:normalizeDamage(raw.resourceDamage),

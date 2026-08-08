@@ -5,9 +5,10 @@ import { AuroraGame, WORLD_SEED, type GameSnapshot } from "./engine";
 import { loadSettings, saveSettings, type GrassAmount } from "./settings";
 import { CRAFTING_RECIPES } from "./crafting.js";
 import { BUILDING_PIECES } from "./building.js";
-import { DEFAULT_HOTBAR } from "./inventory.js";
+import { CARRIED_EQUIPMENT_IDS, DEFAULT_EQUIPMENT, DEFAULT_HOTBAR, DEFAULT_WEAPON_SLOTS } from "./inventory.js";
 
 type Screen = "title" | "playing" | "inventory" | "build" | "paused" | "settings" | "dead";
+type InventoryTab="bag"|"craft";
 
 const GRASS_OPTIONS:Array<{value:GrassAmount;label:string;description:string}>=[
   {value:"none",label:"Nenhuma",description:"Remove toda a grama para máximo desempenho."},
@@ -17,7 +18,7 @@ const GRASS_OPTIONS:Array<{value:GrassAmount;label:string;description:string}>=[
 
 const EMPTY: GameSnapshot = {
   health:100, hunger:78, berries:0, rawMeat:0, cookedMeat:0, wood:0, stone:0,
-  distance:0, chunks:25, biome:"Campos de Aurora", interaction:"", selectedSlot:0,hotbarSlots:[...DEFAULT_HOTBAR],
+  distance:0, chunks:25, biome:"Campos de Aurora", interaction:"", selectedSlot:0,hotbarSlots:[...DEFAULT_HOTBAR],equipmentSlots:{...DEFAULT_EQUIPMENT},weaponSlots:[...DEFAULT_WEAPON_SLOTS],coldProtection:0,heatProtection:0,
   axeDurability:0,pickaxeDurability:0,spearDurability:0,campfireKits:0,timeLabel:"07:00",isNight:false,temperature:18,nearFire:false,survivedNights:0,hammer:false,buildingPiece:"",buildingValid:false,buildingSnap:"",buildingIssue:"",sheltered:false,comboStep:0,comboBuffered:0,gamepad:"",
 };
 
@@ -60,7 +61,10 @@ export default function GameShell() {
   const [selectedBuildingPiece,setSelectedBuildingPiece]=useState(0);
   const [selectedInventoryIndex,setSelectedInventoryIndex]=useState(0);
   const [hotbarEditSlot,setHotbarEditSlot]=useState(0);
+  const [inventoryTab,setInventoryTab]=useState<InventoryTab>("bag");
   const [settings,setSettings]=useState(loadSettings);
+  const ownedInventoryItems=INVENTORY_ITEMS.filter(item=>itemOwned(item.id,snapshot));
+  const selectedInventoryItem=ownedInventoryItems[selectedInventoryIndex%Math.max(1,ownedInventoryItems.length)]??INVENTORY_ITEMS[0];
 
   const showToast=useCallback((message:string)=>{
     setToast(message);
@@ -115,17 +119,22 @@ export default function GameShell() {
       const next=new Set<number>();
       pad?.buttons.forEach((button,index)=>{if(button.pressed||button.value>.55)next.add(index);});
       const justPressed=(index:number)=>next.has(index)&&!menuPadButtons.current.has(index);
-      if(screen==="inventory"&&justPressed(2))assignInventoryItem(INVENTORY_ITEMS[selectedInventoryIndex].id);
-      else if(screen==="inventory"&&justPressed(4))setHotbarEditSlot(current=>(current+8)%9);
-      else if(screen==="inventory"&&justPressed(5))setHotbarEditSlot(current=>(current+1)%9);
+      if(screen==="inventory"&&justPressed(6))setInventoryTab("bag");
+      else if(screen==="inventory"&&justPressed(7))setInventoryTab("craft");
+      else if(screen==="inventory"&&inventoryTab==="bag"&&justPressed(2))assignInventoryItem(selectedInventoryItem.id);
+      else if(screen==="inventory"&&inventoryTab==="bag"&&justPressed(3))gameRef.current?.equipWeapon(selectedInventoryItem.id);
+      else if(screen==="inventory"&&inventoryTab==="bag"&&justPressed(4))setHotbarEditSlot(current=>(current+8)%9);
+      else if(screen==="inventory"&&inventoryTab==="bag"&&justPressed(5))setHotbarEditSlot(current=>(current+1)%9);
       else if(justPressed(0)){
-        if(screen==="inventory")gameRef.current?.craft(CRAFTING_RECIPES[selectedRecipe].id);
+        if(screen==="inventory"){if(inventoryTab==="craft")gameRef.current?.craft(CRAFTING_RECIPES[selectedRecipe].id);else assignInventoryItem(selectedInventoryItem.id);}
         else if(screen==="build"){gameRef.current?.startBuilding(BUILDING_PIECES[selectedBuildingPiece].id);resume();}
         else if(screen==="paused")resume();else start();
-      }else if(screen==="inventory"&&justPressed(14))setSelectedInventoryIndex(current=>(current+INVENTORY_ITEMS.length-1)%INVENTORY_ITEMS.length);
-      else if(screen==="inventory"&&justPressed(15))setSelectedInventoryIndex(current=>(current+1)%INVENTORY_ITEMS.length);
-      else if(screen==="inventory"&&justPressed(12))setSelectedRecipe(current=>(current+CRAFTING_RECIPES.length-1)%CRAFTING_RECIPES.length);
-      else if(screen==="inventory"&&justPressed(13))setSelectedRecipe(current=>(current+1)%CRAFTING_RECIPES.length);
+      }else if(screen==="inventory"&&inventoryTab==="bag"&&justPressed(14))setSelectedInventoryIndex(current=>(current+ownedInventoryItems.length-1)%ownedInventoryItems.length);
+      else if(screen==="inventory"&&inventoryTab==="bag"&&justPressed(15))setSelectedInventoryIndex(current=>(current+1)%ownedInventoryItems.length);
+      else if(screen==="inventory"&&inventoryTab==="bag"&&justPressed(12))setSelectedInventoryIndex(current=>(current+ownedInventoryItems.length-5)%ownedInventoryItems.length);
+      else if(screen==="inventory"&&inventoryTab==="bag"&&justPressed(13))setSelectedInventoryIndex(current=>(current+5)%ownedInventoryItems.length);
+      else if(screen==="inventory"&&inventoryTab==="craft"&&(justPressed(12)||justPressed(14)))setSelectedRecipe(current=>(current+CRAFTING_RECIPES.length-1)%CRAFTING_RECIPES.length);
+      else if(screen==="inventory"&&inventoryTab==="craft"&&(justPressed(13)||justPressed(15)))setSelectedRecipe(current=>(current+1)%CRAFTING_RECIPES.length);
       else if(screen==="build"&&(justPressed(12)||justPressed(14)))setSelectedBuildingPiece(current=>(current+BUILDING_PIECES.length-1)%BUILDING_PIECES.length);
       else if(screen==="build"&&(justPressed(13)||justPressed(15)))setSelectedBuildingPiece(current=>(current+1)%BUILDING_PIECES.length);
       else if(screen==="settings"&&(justPressed(12)||justPressed(14)))cycleGrass(-1);
@@ -141,21 +150,24 @@ export default function GameShell() {
     };
     frame=requestAnimationFrame(tick);
     return()=>cancelAnimationFrame(frame);
-  },[screen,start,resume,selectedRecipe,selectedBuildingPiece,selectedInventoryIndex,assignInventoryItem,cycleGrass]);
+  },[screen,start,resume,selectedRecipe,selectedBuildingPiece,selectedInventoryItem,ownedInventoryItems.length,inventoryTab,assignInventoryItem,cycleGrass]);
 
   useEffect(()=>{
     if(screen!=="inventory")return;
     const onKeyDown=(event:KeyboardEvent)=>{
       if(event.key.toLowerCase()==="i"||event.key==="Escape"){resume();return;}
-      if(event.key==="ArrowUp")setSelectedRecipe(current=>(current+CRAFTING_RECIPES.length-1)%CRAFTING_RECIPES.length);
-      if(event.key==="ArrowDown")setSelectedRecipe(current=>(current+1)%CRAFTING_RECIPES.length);
-      if(event.key==="ArrowLeft")setSelectedInventoryIndex(current=>(current+INVENTORY_ITEMS.length-1)%INVENTORY_ITEMS.length);
-      if(event.key==="ArrowRight")setSelectedInventoryIndex(current=>(current+1)%INVENTORY_ITEMS.length);
-      if(event.key===" "){event.preventDefault();assignInventoryItem(INVENTORY_ITEMS[selectedInventoryIndex].id);}
-      if(event.key==="Enter")gameRef.current?.craft(CRAFTING_RECIPES[selectedRecipe].id);
+      if(event.key==="Tab"){event.preventDefault();setInventoryTab(current=>current==="bag"?"craft":"bag");return;}
+      if(inventoryTab==="bag"&&event.key==="ArrowLeft")setSelectedInventoryIndex(current=>(current+ownedInventoryItems.length-1)%ownedInventoryItems.length);
+      if(inventoryTab==="bag"&&event.key==="ArrowRight")setSelectedInventoryIndex(current=>(current+1)%ownedInventoryItems.length);
+      if(inventoryTab==="bag"&&event.key==="ArrowUp")setSelectedInventoryIndex(current=>(current+ownedInventoryItems.length-5)%ownedInventoryItems.length);
+      if(inventoryTab==="bag"&&event.key==="ArrowDown")setSelectedInventoryIndex(current=>(current+5)%ownedInventoryItems.length);
+      if(inventoryTab==="craft"&&event.key==="ArrowUp")setSelectedRecipe(current=>(current+CRAFTING_RECIPES.length-1)%CRAFTING_RECIPES.length);
+      if(inventoryTab==="craft"&&event.key==="ArrowDown")setSelectedRecipe(current=>(current+1)%CRAFTING_RECIPES.length);
+      if(inventoryTab==="bag"&&(event.key===" "||event.key==="Enter")){event.preventDefault();assignInventoryItem(selectedInventoryItem.id);}
+      if(inventoryTab==="craft"&&event.key==="Enter")gameRef.current?.craft(CRAFTING_RECIPES[selectedRecipe].id);
     };
     window.addEventListener("keydown",onKeyDown);return()=>window.removeEventListener("keydown",onKeyDown);
-  },[screen,resume,selectedRecipe,selectedInventoryIndex,assignInventoryItem]);
+  },[screen,resume,selectedRecipe,selectedInventoryItem,ownedInventoryItems.length,inventoryTab,assignInventoryItem]);
 
   useEffect(()=>{
     if(screen!=="build")return;
@@ -217,7 +229,7 @@ export default function GameShell() {
         {snapshot.buildingPiece?<div className={`building-prompt ${snapshot.buildingValid?"valid":"invalid"}`}><strong>{snapshot.buildingPiece}</strong><span>{snapshot.buildingValid?(snapshot.buildingSnap||"Posicionamento livre"):(snapshot.buildingIssue||"Não é possível construir aqui")}</span></div>:snapshot.interaction&&<div className="interaction-prompt">{snapshot.interaction}</div>}
         {snapshot.comboStep>0&&<div className={`combo-indicator step-${snapshot.comboStep}`}><span>Combo</span><b>{snapshot.comboStep}</b><small>{snapshot.comboStep===3?"finalização":snapshot.comboBuffered>0?"golpe encadeado":"ataque novamente"}</small></div>}
         <div className={`survival-controls ${snapshot.gamepad?"controller-controls":""}`}>
-          {snapshot.buildingPiece?(snapshot.gamepad?<><span className="controller-name">Modo construção</span><span><kbd>△</kbd> construir</span><span><kbd>L2/R2</kbd> girar</span><span><kbd>○</kbd> cancelar</span></>:<><span><kbd>Q</kbd> construir</span><span><kbd>R</kbd> girar</span><span><kbd>Esc</kbd> cancelar</span></>):snapshot.gamepad?<><span className="controller-name">{snapshot.gamepad}</span><span><kbd>L1/R1</kbd> slots</span><span><kbd>□</kbd> coletar</span><span><kbd>△</kbd> atacar / usar</span><span><kbd>Touchpad</kbd> inventário</span><span><kbd>✕</kbd> saltar</span></>:<><span><kbd>WASD</kbd> mover</span><span><kbd>Scroll / 1–9</kbd> selecionar</span><span><kbd>I</kbd> inventário</span><span><kbd>E</kbd> coletar</span><span><kbd>Q</kbd> atacar / usar</span></>}
+          {snapshot.buildingPiece?(snapshot.gamepad?<><span className="controller-name">Modo construção</span><span><kbd>△</kbd> construir</span><span><kbd>L2/R2</kbd> girar</span><span><kbd>○</kbd> cancelar</span></>:<><span><kbd>Q</kbd> construir</span><span><kbd>R</kbd> girar</span><span><kbd>Esc</kbd> cancelar</span></>):snapshot.gamepad?<><span className="controller-name">{snapshot.gamepad}</span><span><kbd>L1/R1</kbd> slots</span><span><kbd>□</kbd> coletar</span><span><kbd>△</kbd> atacar / usar</span><span><kbd>○</kbd> dormir</span><span><kbd>Touchpad</kbd> inventário</span><span><kbd>✕</kbd> saltar</span></>:<><span><kbd>WASD</kbd> mover</span><span><kbd>Scroll / 1–9</kbd> selecionar</span><span><kbd>I</kbd> inventário</span><span><kbd>E</kbd> coletar</span><span><kbd>Q</kbd> atacar / usar</span><span><kbd>F</kbd> dormir</span></>}
         </div>
       </div>
 
@@ -239,30 +251,38 @@ export default function GameShell() {
       </section>
 
       <section className={`screen inventory-screen ${screen!=="inventory"?"hidden":""}`}>
-        <div className="inventory-modal">
-          <header><div><p className="eyebrow">Bancada de campo</p><h2>Inventário & crafting</h2></div><button className="icon-btn" onClick={resume} aria-label="Fechar inventário">×</button></header>
-          <div className="inventory-summary"><span><b>{snapshot.wood}</b> madeira</span><span><b>{snapshot.stone}</b> pedra</span><span><b>{snapshot.berries}</b> frutos</span><span><b>{snapshot.rawMeat}</b> carne crua</span><span><b>{snapshot.cookedMeat}</b> carne assada</span></div>
-          <div className="inventory-loadout">
-            <div className="inventory-section-heading"><div><strong>Mochila</strong><small>Arraste ou selecione um item</small></div><span>{INVENTORY_ITEMS.filter(item=>itemOwned(item.id,snapshot)).length}/{INVENTORY_ITEMS.length} tipos</span></div>
-            <div className="inventory-item-grid" role="list" aria-label="Itens do jogador">
-              {INVENTORY_ITEMS.map((item,index)=>{const count=itemCount(item.id,snapshot),durability=itemDurability(item.id,snapshot),owned=itemOwned(item.id,snapshot);return <button key={item.id} type="button" role="listitem" draggable={owned} className={`inventory-item ${selectedInventoryIndex===index?"selected":""} ${owned?"owned":"unavailable"}`} onClick={()=>setSelectedInventoryIndex(index)} onDoubleClick={()=>owned&&assignInventoryItem(item.id)} onDragStart={event=>{event.dataTransfer.setData("text/plain",item.id);event.dataTransfer.effectAllowed="move";setSelectedInventoryIndex(index);}} aria-label={`${item.name}${owned?"":" indisponível"}`}>
-                <span className="inventory-item-icon"><ItemIcon itemId={item.id} snapshot={snapshot}/></span><strong>{item.name}</strong><small>{item.description}</small>{count!==null&&<b>{count}</b>}{durability!==null&&<i><em style={{width:`${durability}%`}}/></i>}
-              </button>;})}
+        <div className="inventory-modal simple-inventory-modal">
+          <header><div><p className="eyebrow">Equipamento de campo</p><h2>{inventoryTab==="bag"?"Inventário":"Fabricação"}</h2></div><nav className="inventory-tabs" aria-label="Seções do inventário"><button className={inventoryTab==="bag"?"selected":""} onClick={()=>setInventoryTab("bag")}><kbd>L2</kbd> Mochila</button><button className={inventoryTab==="craft"?"selected":""} onClick={()=>setInventoryTab("craft")}>Fabricar <kbd>R2</kbd></button></nav><button className="icon-btn" onClick={resume} aria-label="Fechar inventário">×</button></header>
+          {inventoryTab==="bag"?<>
+            <div className="simple-inventory-body">
+              <section className="backpack-panel">
+                <div className="inventory-section-heading"><div><strong>Mochila</strong><small>Use os direcionais ou clique em um item</small></div><span>{ownedInventoryItems.length} tipos</span></div>
+                <div className="simple-item-grid" role="list" aria-label="Itens do jogador">
+                  {ownedInventoryItems.map((item,index)=>{const count=itemCount(item.id,snapshot),durability=itemDurability(item.id,snapshot);return <button key={item.id} type="button" role="listitem" draggable className={`simple-item-slot ${selectedInventoryIndex%ownedInventoryItems.length===index?"selected":""}`} onClick={()=>setSelectedInventoryIndex(index)} onDoubleClick={()=>assignInventoryItem(item.id)} onDragStart={event=>{event.dataTransfer.setData("text/plain",item.id);event.dataTransfer.effectAllowed="move";setSelectedInventoryIndex(index);}} aria-label={item.name}>
+                    <ItemIcon itemId={item.id} snapshot={snapshot}/>{count!==null&&<b>{count}</b>}{durability!==null&&<i><em style={{width:`${durability}%`}}/></i>}
+                  </button>;})}
+                  {Array.from({length:Math.max(0,20-ownedInventoryItems.length)},(_,index)=><span className="simple-item-slot empty" key={`empty-${index}`} aria-hidden="true"/>)}
+                </div>
+                <div className="selected-item-detail"><span className="inventory-item-icon"><ItemIcon itemId={selectedInventoryItem.id} snapshot={snapshot}/></span><div><strong>{selectedInventoryItem.name}</strong><small>{selectedInventoryItem.description}</small></div>{CARRIED_EQUIPMENT_IDS.includes(selectedInventoryItem.id)&&<button onClick={()=>gameRef.current?.equipWeapon(selectedInventoryItem.id)}>Equipar <kbd>△</kbd></button>}<button onClick={()=>assignInventoryItem(selectedInventoryItem.id)}>Atalho {hotbarEditSlot+1} <kbd>□</kbd></button></div>
+              </section>
+              <aside className="character-equipment" aria-label="Personagem e roupas equipadas">
+                <div className="equipment-title"><span>Expedicionário</span><strong>Equipamento</strong></div>
+                <div className="character-stage">
+                  <div className="equipment-slots left"><button><span>◉</span><small>Cabeça</small><b>{snapshot.equipmentSlots.head||"Vazio"}</b></button><button><span>▰</span><small>Tronco</small><b>{snapshot.equipmentSlots.body||"Vazio"}</b></button></div>
+                  <div className="character-mannequin" aria-label="Visual do personagem"><i className="mannequin-antenna"/><i className="mannequin-head"/><i className="mannequin-scarf"/><i className="mannequin-body"/><i className="mannequin-arm left"/><i className="mannequin-arm right"/><i className="mannequin-leg left"/><i className="mannequin-leg right"/></div>
+                  <div className="equipment-slots right"><button><span>▥</span><small>Pernas</small><b>{snapshot.equipmentSlots.legs||"Vazio"}</b></button><button><span>⌁</span><small>Pés</small><b>{snapshot.equipmentSlots.feet||"Vazio"}</b></button></div>
+                </div>
+                <div className="weapon-loadout"><span>Ferramentas equipadas</span><div>{snapshot.weaponSlots.map((itemId,index)=><button key={index} className={snapshot.hotbarSlots[snapshot.selectedSlot]===itemId?"active":""} onClick={()=>gameRef.current?.setWeaponSlot(index,selectedInventoryItem.id)}><small>{index+1}</small><strong>{ITEM_BY_ID.get(itemId)?.name??"Vazio"}</strong></button>)}</div><small>Ativa na mão; a outra fica nas costas.</small></div>
+                <div className="equipped-hand"><span>Mão ativa</span><strong>{ITEM_BY_ID.get(snapshot.hotbarSlots[snapshot.selectedSlot])?.name??"Nenhum item"}</strong></div>
+                <div className="thermal-protection"><span><b>❄ {snapshot.coldProtection}</b> frio</span><span><b>☀ {snapshot.heatProtection}</b> calor</span><small>Roupas futuras aumentarão estas proteções.</small></div>
+              </aside>
             </div>
-            <div className="inventory-section-heading hotbar-heading"><div><strong>Atalhos</strong><small>Solte o item no slot desejado</small></div><span><kbd>L1/R1</kbd> slot · <kbd>□</kbd> equipar</span></div>
-            <div className="inventory-hotbar" aria-label="Configuração da barra de atalhos">
-              {snapshot.hotbarSlots.map((itemId,index)=>{const item=ITEM_BY_ID.get(itemId),count=itemCount(itemId,snapshot);return <button key={index} type="button" draggable={Boolean(itemId)} className={`inventory-hotbar-slot ${hotbarEditSlot===index?"selected":""}`} onClick={()=>{setHotbarEditSlot(index);const selected=INVENTORY_ITEMS[selectedInventoryIndex];if(itemOwned(selected.id,snapshot))assignInventoryItem(selected.id,index);}} onDragStart={event=>{if(itemId){event.dataTransfer.setData("text/plain",itemId);event.dataTransfer.effectAllowed="move";}}} onDragOver={event=>{event.preventDefault();event.dataTransfer.dropEffect="move";}} onDrop={event=>{event.preventDefault();const dropped=event.dataTransfer.getData("text/plain");if(ITEM_BY_ID.has(dropped))assignInventoryItem(dropped,index);}} aria-label={`Atalho ${index+1}: ${item?.name??"vazio"}`}>
-                <span>{index+1}</span><ItemIcon itemId={itemId} snapshot={snapshot}/>{count!==null&&count>0&&<b>{count}</b>}
-              </button>;})}
-            </div>
-          </div>
-          <div className="crafting-heading"><strong>Fabricação</strong><small>Use os recursos da mochila para criar equipamentos</small></div>
-          <div className="recipe-list">
-            {CRAFTING_RECIPES.map((recipe,index)=>{const affordable=snapshot.wood>=recipe.cost.wood&&snapshot.stone>=recipe.cost.stone;return <button key={recipe.id} className={`recipe-card ${selectedRecipe===index?"selected":""} ${affordable?"affordable":"locked"}`} onMouseEnter={()=>setSelectedRecipe(index)} onClick={()=>gameRef.current?.craft(recipe.id)}>
-              <span className={`recipe-icon ${recipe.id}`}>{recipe.id==="campfire"?"♨":recipe.id==="spear"?"↟":"⌁"}</span><div><strong>{recipe.name}</strong><small>{recipe.description}</small><em><i className={snapshot.wood>=recipe.cost.wood?"ready":""}>▰ {recipe.cost.wood}</i><i className={snapshot.stone>=recipe.cost.stone?"ready":""}>◆ {recipe.cost.stone}</i></em></div><kbd>{selectedRecipe===index?"✕":""}</kbd>
-            </button>;})}
-          </div>
-          <footer><span><kbd>←→</kbd> item</span><span><kbd>□ / Espaço</kbd> equipar</span><span><kbd>↑↓</kbd> receita</span><span><kbd>✕ / Enter</kbd> fabricar</span><span><kbd>○ / I</kbd> voltar</span></footer>
+            <div className="simple-hotbar-editor"><div><strong>Atalhos rápidos</strong><small><kbd>L1/R1</kbd> escolher · solte ou pressione <kbd>□</kbd></small></div><div className="inventory-hotbar" aria-label="Configuração da barra de atalhos">{snapshot.hotbarSlots.map((itemId,index)=>{const item=ITEM_BY_ID.get(itemId),count=itemCount(itemId,snapshot);return <button key={index} type="button" draggable={Boolean(itemId)} className={`inventory-hotbar-slot ${hotbarEditSlot===index?"selected":""}`} onClick={()=>{setHotbarEditSlot(index);assignInventoryItem(selectedInventoryItem.id,index);}} onDragStart={event=>{if(itemId){event.dataTransfer.setData("text/plain",itemId);event.dataTransfer.effectAllowed="move";}}} onDragOver={event=>event.preventDefault()} onDrop={event=>{event.preventDefault();const dropped=event.dataTransfer.getData("text/plain");if(ITEM_BY_ID.has(dropped))assignInventoryItem(dropped,index);}} aria-label={`Atalho ${index+1}: ${item?.name??"vazio"}`}><span>{index+1}</span><ItemIcon itemId={itemId} snapshot={snapshot}/>{count!==null&&count>0&&<b>{count}</b>}</button>;})}</div></div>
+          </>:<>
+            <div className="inventory-summary"><span><b>{snapshot.wood}</b> madeira</span><span><b>{snapshot.stone}</b> pedra</span></div>
+            <div className="recipe-list simple-crafting-list">{CRAFTING_RECIPES.map((recipe,index)=>{const affordable=snapshot.wood>=recipe.cost.wood&&snapshot.stone>=recipe.cost.stone;return <button key={recipe.id} className={`recipe-card ${selectedRecipe===index?"selected":""} ${affordable?"affordable":"locked"}`} onMouseEnter={()=>setSelectedRecipe(index)} onClick={()=>gameRef.current?.craft(recipe.id)}><span className={`recipe-icon ${recipe.id}`}>{recipe.id==="campfire"?"♨":recipe.id==="spear"?"↟":"⌁"}</span><div><strong>{recipe.name}</strong><small>{recipe.description}</small><em><i className={snapshot.wood>=recipe.cost.wood?"ready":""}>▰ {recipe.cost.wood}</i><i className={snapshot.stone>=recipe.cost.stone?"ready":""}>◆ {recipe.cost.stone}</i></em></div><kbd>{selectedRecipe===index?"✕":""}</kbd></button>;})}</div>
+          </>}
+          <footer>{inventoryTab==="bag"?<><span><kbd>Direcionais</kbd> navegar</span><span><kbd>L1/R1</kbd> atalho</span><span><kbd>□ / ✕</kbd> colocar</span></>:<><span><kbd>↑↓</kbd> escolher</span><span><kbd>✕</kbd> fabricar</span></>}<span><kbd>○ / I</kbd> voltar</span></footer>
         </div>
       </section>
 
