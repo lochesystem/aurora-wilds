@@ -287,12 +287,30 @@ h1 span { display: block; color: var(--gold); font-size: .66em; margin-left: .38
 @keyframes combo-pop { 50% { transform:translateX(-50%) scale(1.18); } }
 
 .inventory-screen { z-index:18; background:radial-gradient(circle at 50% 45%,rgba(47,77,65,.28),rgba(4,15,20,.82)); backdrop-filter:blur(10px); }
-.inventory-modal { width:min(760px,94vw); overflow:hidden; border:1px solid rgba(255,255,255,.2); border-radius:24px; background:linear-gradient(145deg,rgba(14,41,42,.97),rgba(9,27,31,.98)); box-shadow:0 35px 100px rgba(0,7,10,.62),inset 0 1px rgba(255,255,255,.1); }
+.inventory-modal { width:min(820px,94vw); max-height:94vh; overflow:auto; border:1px solid rgba(255,255,255,.2); border-radius:24px; background:linear-gradient(145deg,rgba(14,41,42,.97),rgba(9,27,31,.98)); box-shadow:0 35px 100px rgba(0,7,10,.62),inset 0 1px rgba(255,255,255,.1); }
 .inventory-modal>header { display:flex; align-items:center; justify-content:space-between; padding:22px 25px 17px; border-bottom:1px solid rgba(255,255,255,.09); }
 .inventory-modal h2 { font-size:36px; }.inventory-modal .eyebrow { margin-bottom:5px; }
-.inventory-summary { display:flex; gap:8px; padding:14px 24px; border-bottom:1px solid rgba(255,255,255,.07); }
+.inventory-summary { display:flex; flex-wrap:wrap; gap:8px; padding:14px 24px; border-bottom:1px solid rgba(255,255,255,.07); }
 .inventory-summary span { min-width:110px; padding:8px 11px; border-radius:9px; background:rgba(255,255,255,.05); color:rgba(255,255,255,.55); font-size:9px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
 .inventory-summary b { margin-right:5px; color:#fff; font-family:var(--font-display); font-size:17px; }
+.inventory-loadout { padding:16px 24px 18px; border-bottom:1px solid rgba(255,255,255,.08); background:rgba(0,0,0,.12); }
+.inventory-section-heading,.crafting-heading { display:flex; align-items:end; justify-content:space-between; gap:12px; margin-bottom:10px; }
+.inventory-section-heading strong,.crafting-heading strong { display:block; color:#eaf1e8; font-family:var(--font-display); font-size:17px; letter-spacing:.07em; text-transform:uppercase; }
+.inventory-section-heading small,.crafting-heading small { display:block; margin-top:2px; color:rgba(255,255,255,.4); font-size:9px; }
+.inventory-section-heading>span { color:rgba(255,255,255,.42); font-size:8px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+.inventory-item-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:7px; }
+.inventory-item { position:relative; display:grid; grid-template-columns:38px 1fr; grid-template-rows:auto auto; min-width:0; min-height:64px; gap:1px 8px; align-items:center; padding:8px; border:1px solid rgba(255,255,255,.09); border-radius:10px; color:#fff; cursor:grab; text-align:left; background:rgba(255,255,255,.035); }
+.inventory-item:hover,.inventory-item.selected { border-color:rgba(108,231,207,.65); background:rgba(91,210,185,.1); box-shadow:0 6px 18px rgba(0,0,0,.2); }
+.inventory-item.unavailable { opacity:.36; cursor:default; }.inventory-item.unavailable.selected { opacity:.58; border-color:rgba(255,255,255,.22); }
+.inventory-item-icon { grid-row:1/3; display:grid; width:38px; height:42px; place-items:center; border-radius:7px; background:rgba(0,0,0,.24); overflow:hidden; }
+.inventory-item-icon .slot-icon { position:static; transform:scale(.72); }.inventory-item-icon .axe-icon { transform:rotate(-48deg) scale(.82); }.inventory-item-icon .pickaxe-icon { transform:rotate(-22deg) scale(.68); }.inventory-item-icon .hammer-icon { transform:rotate(-35deg) scale(.82); }.inventory-item-icon .spear-icon { transform:rotate(38deg) scale(.8); }
+.inventory-item>strong { overflow:hidden; font-size:9px; letter-spacing:.03em; text-overflow:ellipsis; white-space:nowrap; }.inventory-item>small { overflow:hidden; color:rgba(255,255,255,.38); font-size:7px; text-overflow:ellipsis; white-space:nowrap; }
+.inventory-item>b { position:absolute; right:6px; top:5px; font-family:var(--font-display); font-size:12px; }.inventory-item>i { position:absolute; right:7px; bottom:5px; left:53px; height:3px; overflow:hidden; border-radius:2px; background:#07120f; }.inventory-item>i em { display:block; height:100%; background:#72d28c; }
+.hotbar-heading { margin-top:14px; }.inventory-hotbar { display:grid; grid-template-columns:repeat(9,1fr); gap:4px; padding:5px; border:1px solid rgba(255,255,255,.1); border-radius:11px; background:rgba(4,15,17,.58); }
+.inventory-hotbar-slot { position:relative; display:grid; min-width:0; height:55px; place-items:center; border:1px solid rgba(255,255,255,.12); border-radius:7px; background:rgba(255,255,255,.045); color:#fff; cursor:pointer; }
+.inventory-hotbar-slot:hover,.inventory-hotbar-slot.selected { border-color:#e8c96c; background:rgba(232,201,108,.12); box-shadow:inset 0 0 0 1px rgba(232,201,108,.25); }.inventory-hotbar-slot>span:first-child { position:absolute; left:4px; top:2px; color:rgba(255,255,255,.42); font-size:8px; }.inventory-hotbar-slot>.slot-icon { transform:scale(.76); }.inventory-hotbar-slot>.axe-icon { transform:rotate(-48deg) scale(.86); }.inventory-hotbar-slot>.pickaxe-icon { transform:rotate(-22deg) scale(.7); }.inventory-hotbar-slot>.hammer-icon { transform:rotate(-35deg) scale(.86); }.inventory-hotbar-slot>.spear-icon { transform:rotate(38deg) scale(.82); }.inventory-hotbar-slot>b { position:absolute; right:4px; bottom:2px; font-size:10px; }
+.raw-meat-icon { color:#bd514d; text-shadow:9px 2px 0 #8d3737; }.slot-placeholder { width:16px; height:16px; border:1px dashed rgba(255,255,255,.2); border-radius:4px; }
+.crafting-heading { margin:14px 24px 0; }
 .recipe-list { display:grid; gap:9px; padding:16px 24px 22px; }
 .recipe-card { display:grid; grid-template-columns:54px 1fr 30px; gap:13px; align-items:center; width:100%; padding:12px 14px; border:1px solid rgba(255,255,255,.1); border-radius:13px; cursor:pointer; color:#fff; text-align:left; background:rgba(255,255,255,.035); transition:.14s; }
 .recipe-card:hover,.recipe-card.selected { transform:translateX(5px); border-color:rgba(105,230,209,.52); background:rgba(105,230,209,.1); box-shadow:0 8px 26px rgba(0,0,0,.22); }
@@ -323,7 +341,7 @@ h1 span { display: block; color: var(--gold); font-size: .66em; margin-left: .38
   .hotbar-slot { width:38px; height:42px; }
   .slot-icon { transform:scale(.82); }.hotbar-slot .wood-icon { transform:rotate(-12deg) scale(.82); }
   .interaction-prompt { bottom:126px; white-space:nowrap; }
-  .inventory-modal>header { padding:17px; }.inventory-modal h2 { font-size:27px; }.inventory-summary { padding:11px 15px; }.recipe-list { padding:13px 15px 17px; }.building-list { grid-template-columns:1fr; }.recipe-card { grid-template-columns:44px 1fr 22px; padding:10px; }.recipe-icon { width:40px;height:40px; }.inventory-modal>footer { gap:8px; font-size:7px; }
+  .inventory-modal>header { padding:17px; }.inventory-modal h2 { font-size:27px; }.inventory-summary { padding:11px 15px; }.inventory-loadout { padding:13px 15px; }.inventory-item-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }.inventory-hotbar { overflow-x:auto; grid-template-columns:repeat(9,48px); }.recipe-list { padding:13px 15px 17px; }.building-list { grid-template-columns:1fr; }.recipe-card { grid-template-columns:44px 1fr 22px; padding:10px; }.recipe-icon { width:40px;height:40px; }.inventory-modal>footer { flex-wrap:wrap; gap:8px; font-size:7px; }
   .grass-options { grid-template-columns:1fr; }.grass-options button { min-height:auto; }.grass-settings-card { max-height:92vh; overflow:auto; }
 }
 

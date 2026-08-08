@@ -5,6 +5,7 @@ import { AuroraGame, WORLD_SEED, type GameSnapshot } from "./engine";
 import { loadSettings, saveSettings, type GrassAmount } from "./settings";
 import { CRAFTING_RECIPES } from "./crafting.js";
 import { BUILDING_PIECES } from "./building.js";
+import { DEFAULT_HOTBAR } from "./inventory.js";
 
 type Screen = "title" | "playing" | "inventory" | "build" | "paused" | "settings" | "dead";
 
@@ -15,22 +16,35 @@ const GRASS_OPTIONS:Array<{value:GrassAmount;label:string;description:string}>=[
 ];
 
 const EMPTY: GameSnapshot = {
-  health:100, hunger:78, berries:0, wood:0, stone:0,
-  distance:0, chunks:25, biome:"Campos de Aurora", interaction:"", selectedSlot:0,
-  axeDurability:0,pickaxeDurability:0,spearDurability:0,campfireKits:0,timeLabel:"07:00",isNight:false,temperature:18,nearFire:false,survivedNights:0,hammer:false,buildingPiece:"",buildingValid:false,sheltered:false,comboStep:0,comboBuffered:0,gamepad:"",
+  health:100, hunger:78, berries:0, rawMeat:0, cookedMeat:0, wood:0, stone:0,
+  distance:0, chunks:25, biome:"Campos de Aurora", interaction:"", selectedSlot:0,hotbarSlots:[...DEFAULT_HOTBAR],
+  axeDurability:0,pickaxeDurability:0,spearDurability:0,campfireKits:0,timeLabel:"07:00",isNight:false,temperature:18,nearFire:false,survivedNights:0,hammer:false,buildingPiece:"",buildingValid:false,buildingSnap:"",buildingIssue:"",sheltered:false,comboStep:0,comboBuffered:0,gamepad:"",
 };
 
-const HOTBAR_ITEMS = [
-  {name:"Mãos",kind:"hands",count:null,durability:null},
-  {name:"Frutos solares",kind:"berry",count:"berries",durability:null},
-  {name:"Machado de pedra",kind:"axe",count:null,durability:"axeDurability"},
-  {name:"Picareta de pedra",kind:"pickaxe",count:null,durability:"pickaxeDurability"},
-  {name:"Fogueira",kind:"campfire",count:"campfireKits",durability:null},
-  {name:"Madeira",kind:"wood",count:"wood",durability:null},
-  {name:"Pedra",kind:"stone",count:"stone",durability:null},
-  {name:"Martelo de construção",kind:"hammer",count:null,durability:null},
-  {name:"Lança de pedra",kind:"spear",count:null,durability:"spearDurability"},
+const INVENTORY_ITEMS = [
+  {id:"hands",name:"Mãos",description:"Ataque sem equipamento."},
+  {id:"provisions",name:"Frutos e carne",description:"Consome carne assada ou frutos."},
+  {id:"axe",name:"Machado de pedra",description:"Ferramenta para madeira."},
+  {id:"pickaxe",name:"Picareta de pedra",description:"Ferramenta para rochas."},
+  {id:"campfire",name:"Fogueira",description:"Kit de fogueira fabricado."},
+  {id:"wood",name:"Madeira",description:"Material de construção."},
+  {id:"stone",name:"Pedra",description:"Material de fabricação."},
+  {id:"hammer",name:"Martelo",description:"Abre o modo construção."},
+  {id:"spear",name:"Lança de pedra",description:"Arma de caça com alcance."},
+  {id:"rawMeat",name:"Carne crua",description:"Asse perto de uma fogueira."},
 ] as const;
+
+type InventoryItem=(typeof INVENTORY_ITEMS)[number];
+const ITEM_BY_ID=new Map<string,InventoryItem>(INVENTORY_ITEMS.map(item=>[item.id,item]));
+
+function itemCount(itemId:string,snapshot:GameSnapshot){
+  if(itemId==="provisions")return snapshot.berries+snapshot.cookedMeat;
+  if(itemId==="campfire")return snapshot.campfireKits;
+  if(itemId==="wood")return snapshot.wood;if(itemId==="stone")return snapshot.stone;if(itemId==="rawMeat")return snapshot.rawMeat;return null;
+}
+function itemDurability(itemId:string,snapshot:GameSnapshot){if(itemId==="axe")return snapshot.axeDurability;if(itemId==="pickaxe")return snapshot.pickaxeDurability;if(itemId==="spear")return snapshot.spearDurability;return null;}
+function itemOwned(itemId:string,snapshot:GameSnapshot){const count=itemCount(itemId,snapshot),durability=itemDurability(itemId,snapshot);return itemId==="hands"||itemId==="hammer"&&snapshot.hammer||(count??0)>0||(durability??0)>0;}
+function ItemIcon({itemId,snapshot}:{itemId:string;snapshot:GameSnapshot}){const owned=itemOwned(itemId,snapshot);if(!owned&&itemId!=="hands")return <span className="slot-placeholder"/>;if(itemId==="hands")return <span className="slot-icon hands-icon">✊</span>;if(itemId==="provisions")return snapshot.cookedMeat>0?<span className="slot-icon">🍖</span>:<span className="slot-icon berry-icon"><i/><i/><i/></span>;if(itemId==="axe")return <span className="slot-icon tool-icon axe-icon">⌁</span>;if(itemId==="pickaxe")return <span className="slot-icon tool-icon pickaxe-icon">⌁</span>;if(itemId==="campfire")return <span className="slot-icon campfire-icon">♨</span>;if(itemId==="wood")return <span className="slot-icon wood-icon">▰</span>;if(itemId==="stone")return <span className="slot-icon stone-icon">◆</span>;if(itemId==="hammer")return <span className="slot-icon tool-icon hammer-icon">⌕</span>;if(itemId==="spear")return <span className="slot-icon tool-icon spear-icon">↟</span>;if(itemId==="rawMeat")return <span className="slot-icon raw-meat-icon">●</span>;return null;}
 
 export default function GameShell() {
   const canvasRef=useRef<HTMLCanvasElement>(null);
@@ -44,6 +58,8 @@ export default function GameShell() {
   const [runId,setRunId]=useState(0);
   const [selectedRecipe,setSelectedRecipe]=useState(0);
   const [selectedBuildingPiece,setSelectedBuildingPiece]=useState(0);
+  const [selectedInventoryIndex,setSelectedInventoryIndex]=useState(0);
+  const [hotbarEditSlot,setHotbarEditSlot]=useState(0);
   const [settings,setSettings]=useState(loadSettings);
 
   const showToast=useCallback((message:string)=>{
@@ -80,6 +96,7 @@ export default function GameShell() {
   },[showToast]);
 
   const resume=useCallback(()=>{setScreen("playing");canvasRef.current?.focus();},[]);
+  const assignInventoryItem=useCallback((itemId:string,slot=hotbarEditSlot)=>{gameRef.current?.setHotbarSlot(slot,itemId);setHotbarEditSlot(slot);},[hotbarEditSlot]);
   const changeGrass=useCallback((grassAmount:GrassAmount)=>{
     setSettings(current=>{const next={...current,grassAmount};saveSettings(next);gameRef.current?.applySettings(next);return next;});
   },[]);
@@ -98,12 +115,17 @@ export default function GameShell() {
       const next=new Set<number>();
       pad?.buttons.forEach((button,index)=>{if(button.pressed||button.value>.55)next.add(index);});
       const justPressed=(index:number)=>next.has(index)&&!menuPadButtons.current.has(index);
-      if(justPressed(0)){
+      if(screen==="inventory"&&justPressed(2))assignInventoryItem(INVENTORY_ITEMS[selectedInventoryIndex].id);
+      else if(screen==="inventory"&&justPressed(4))setHotbarEditSlot(current=>(current+8)%9);
+      else if(screen==="inventory"&&justPressed(5))setHotbarEditSlot(current=>(current+1)%9);
+      else if(justPressed(0)){
         if(screen==="inventory")gameRef.current?.craft(CRAFTING_RECIPES[selectedRecipe].id);
         else if(screen==="build"){gameRef.current?.startBuilding(BUILDING_PIECES[selectedBuildingPiece].id);resume();}
         else if(screen==="paused")resume();else start();
-      }else if(screen==="inventory"&&(justPressed(12)||justPressed(14)))setSelectedRecipe(current=>(current+CRAFTING_RECIPES.length-1)%CRAFTING_RECIPES.length);
-      else if(screen==="inventory"&&(justPressed(13)||justPressed(15)))setSelectedRecipe(current=>(current+1)%CRAFTING_RECIPES.length);
+      }else if(screen==="inventory"&&justPressed(14))setSelectedInventoryIndex(current=>(current+INVENTORY_ITEMS.length-1)%INVENTORY_ITEMS.length);
+      else if(screen==="inventory"&&justPressed(15))setSelectedInventoryIndex(current=>(current+1)%INVENTORY_ITEMS.length);
+      else if(screen==="inventory"&&justPressed(12))setSelectedRecipe(current=>(current+CRAFTING_RECIPES.length-1)%CRAFTING_RECIPES.length);
+      else if(screen==="inventory"&&justPressed(13))setSelectedRecipe(current=>(current+1)%CRAFTING_RECIPES.length);
       else if(screen==="build"&&(justPressed(12)||justPressed(14)))setSelectedBuildingPiece(current=>(current+BUILDING_PIECES.length-1)%BUILDING_PIECES.length);
       else if(screen==="build"&&(justPressed(13)||justPressed(15)))setSelectedBuildingPiece(current=>(current+1)%BUILDING_PIECES.length);
       else if(screen==="settings"&&(justPressed(12)||justPressed(14)))cycleGrass(-1);
@@ -119,7 +141,7 @@ export default function GameShell() {
     };
     frame=requestAnimationFrame(tick);
     return()=>cancelAnimationFrame(frame);
-  },[screen,start,resume,selectedRecipe,selectedBuildingPiece,cycleGrass]);
+  },[screen,start,resume,selectedRecipe,selectedBuildingPiece,selectedInventoryIndex,assignInventoryItem,cycleGrass]);
 
   useEffect(()=>{
     if(screen!=="inventory")return;
@@ -127,10 +149,13 @@ export default function GameShell() {
       if(event.key.toLowerCase()==="i"||event.key==="Escape"){resume();return;}
       if(event.key==="ArrowUp")setSelectedRecipe(current=>(current+CRAFTING_RECIPES.length-1)%CRAFTING_RECIPES.length);
       if(event.key==="ArrowDown")setSelectedRecipe(current=>(current+1)%CRAFTING_RECIPES.length);
+      if(event.key==="ArrowLeft")setSelectedInventoryIndex(current=>(current+INVENTORY_ITEMS.length-1)%INVENTORY_ITEMS.length);
+      if(event.key==="ArrowRight")setSelectedInventoryIndex(current=>(current+1)%INVENTORY_ITEMS.length);
+      if(event.key===" "){event.preventDefault();assignInventoryItem(INVENTORY_ITEMS[selectedInventoryIndex].id);}
       if(event.key==="Enter")gameRef.current?.craft(CRAFTING_RECIPES[selectedRecipe].id);
     };
     window.addEventListener("keydown",onKeyDown);return()=>window.removeEventListener("keydown",onKeyDown);
-  },[screen,resume,selectedRecipe]);
+  },[screen,resume,selectedRecipe,selectedInventoryIndex,assignInventoryItem]);
 
   useEffect(()=>{
     if(screen!=="build")return;
@@ -176,23 +201,12 @@ export default function GameShell() {
         </div>
 
         <div className="hotbar-wrap">
-          <div className="selected-item-name">{HOTBAR_ITEMS[snapshot.selectedSlot].name}</div>
+          <div className="selected-item-name">{ITEM_BY_ID.get(snapshot.hotbarSlots[snapshot.selectedSlot])?.name??"Atalho vazio"}</div>
           <div className="hotbar" aria-label="Barra de acesso rápido">
-            {HOTBAR_ITEMS.map((item,index)=>{
-              const count=item.count?snapshot[item.count]:null;
-              const durability=item.durability?snapshot[item.durability]:null;
-              const occupied=item.kind==="hands"||item.kind==="hammer"&&snapshot.hammer||(typeof count==="number"&&count>0)||(typeof durability==="number"&&durability>0);
-              return <button key={index} type="button" className={`hotbar-slot ${snapshot.selectedSlot===index?"selected":""} ${occupied?"occupied":"empty"}`} aria-label={`${index+1}: ${item.name}${count!==null?`, quantidade ${count}`:""}`} aria-pressed={snapshot.selectedSlot===index} onClick={()=>gameRef.current?.selectHotbarSlot(index)}>
+            {snapshot.hotbarSlots.map((itemId,index)=>{const item=ITEM_BY_ID.get(itemId),count=itemCount(itemId,snapshot),durability=itemDurability(itemId,snapshot),occupied=itemOwned(itemId,snapshot);
+              return <button key={index} type="button" className={`hotbar-slot ${snapshot.selectedSlot===index?"selected":""} ${occupied?"occupied":"empty"}`} aria-label={`${index+1}: ${item?.name??"vazio"}${count!==null?`, quantidade ${count}`:""}`} aria-pressed={snapshot.selectedSlot===index} onClick={()=>gameRef.current?.selectHotbarSlot(index)}>
                 <span className="slot-key">{index+1}</span>
-                {item.kind==="hands"&&<span className="slot-icon hands-icon">✊</span>}
-                {item.kind==="berry"&&occupied&&<span className="slot-icon berry-icon"><i/><i/><i/></span>}
-                {item.kind==="axe"&&occupied&&<span className="slot-icon tool-icon axe-icon">⌁</span>}
-                {item.kind==="pickaxe"&&occupied&&<span className="slot-icon tool-icon pickaxe-icon">⌁</span>}
-                {item.kind==="campfire"&&occupied&&<span className="slot-icon campfire-icon">♨</span>}
-                {item.kind==="wood"&&occupied&&<span className="slot-icon wood-icon">▰</span>}
-                {item.kind==="stone"&&occupied&&<span className="slot-icon stone-icon">◆</span>}
-                {item.kind==="hammer"&&occupied&&<span className="slot-icon tool-icon hammer-icon">⌕</span>}
-                {item.kind==="spear"&&occupied&&<span className="slot-icon tool-icon spear-icon">↟</span>}
+                <ItemIcon itemId={itemId} snapshot={snapshot}/>
                 {count!==null&&count>0&&<b className="stack-count">{count}</b>}
                 {durability!==null&&durability>0&&<i className="durability"><em style={{width:`${durability}%`}}/></i>}
               </button>;
@@ -200,7 +214,7 @@ export default function GameShell() {
           </div>
         </div>
 
-        {snapshot.buildingPiece?<div className={`building-prompt ${snapshot.buildingValid?"valid":"invalid"}`}><strong>{snapshot.buildingPiece}</strong><span>{snapshot.buildingValid?"pronto para construir":"local bloqueado ou sem materiais"}</span></div>:snapshot.interaction&&<div className="interaction-prompt">{snapshot.interaction}</div>}
+        {snapshot.buildingPiece?<div className={`building-prompt ${snapshot.buildingValid?"valid":"invalid"}`}><strong>{snapshot.buildingPiece}</strong><span>{snapshot.buildingValid?(snapshot.buildingSnap||"Posicionamento livre"):(snapshot.buildingIssue||"Não é possível construir aqui")}</span></div>:snapshot.interaction&&<div className="interaction-prompt">{snapshot.interaction}</div>}
         {snapshot.comboStep>0&&<div className={`combo-indicator step-${snapshot.comboStep}`}><span>Combo</span><b>{snapshot.comboStep}</b><small>{snapshot.comboStep===3?"finalização":snapshot.comboBuffered>0?"golpe encadeado":"ataque novamente"}</small></div>}
         <div className={`survival-controls ${snapshot.gamepad?"controller-controls":""}`}>
           {snapshot.buildingPiece?(snapshot.gamepad?<><span className="controller-name">Modo construção</span><span><kbd>△</kbd> construir</span><span><kbd>L2/R2</kbd> girar</span><span><kbd>○</kbd> cancelar</span></>:<><span><kbd>Q</kbd> construir</span><span><kbd>R</kbd> girar</span><span><kbd>Esc</kbd> cancelar</span></>):snapshot.gamepad?<><span className="controller-name">{snapshot.gamepad}</span><span><kbd>L1/R1</kbd> slots</span><span><kbd>□</kbd> coletar</span><span><kbd>△</kbd> atacar / usar</span><span><kbd>Touchpad</kbd> inventário</span><span><kbd>✕</kbd> saltar</span></>:<><span><kbd>WASD</kbd> mover</span><span><kbd>Scroll / 1–9</kbd> selecionar</span><span><kbd>I</kbd> inventário</span><span><kbd>E</kbd> coletar</span><span><kbd>Q</kbd> atacar / usar</span></>}
@@ -227,13 +241,28 @@ export default function GameShell() {
       <section className={`screen inventory-screen ${screen!=="inventory"?"hidden":""}`}>
         <div className="inventory-modal">
           <header><div><p className="eyebrow">Bancada de campo</p><h2>Inventário & crafting</h2></div><button className="icon-btn" onClick={resume} aria-label="Fechar inventário">×</button></header>
-          <div className="inventory-summary"><span><b>{snapshot.wood}</b> madeira</span><span><b>{snapshot.stone}</b> pedra</span><span><b>{snapshot.berries}</b> frutos</span></div>
+          <div className="inventory-summary"><span><b>{snapshot.wood}</b> madeira</span><span><b>{snapshot.stone}</b> pedra</span><span><b>{snapshot.berries}</b> frutos</span><span><b>{snapshot.rawMeat}</b> carne crua</span><span><b>{snapshot.cookedMeat}</b> carne assada</span></div>
+          <div className="inventory-loadout">
+            <div className="inventory-section-heading"><div><strong>Mochila</strong><small>Arraste ou selecione um item</small></div><span>{INVENTORY_ITEMS.filter(item=>itemOwned(item.id,snapshot)).length}/{INVENTORY_ITEMS.length} tipos</span></div>
+            <div className="inventory-item-grid" role="list" aria-label="Itens do jogador">
+              {INVENTORY_ITEMS.map((item,index)=>{const count=itemCount(item.id,snapshot),durability=itemDurability(item.id,snapshot),owned=itemOwned(item.id,snapshot);return <button key={item.id} type="button" role="listitem" draggable={owned} className={`inventory-item ${selectedInventoryIndex===index?"selected":""} ${owned?"owned":"unavailable"}`} onClick={()=>setSelectedInventoryIndex(index)} onDoubleClick={()=>owned&&assignInventoryItem(item.id)} onDragStart={event=>{event.dataTransfer.setData("text/plain",item.id);event.dataTransfer.effectAllowed="move";setSelectedInventoryIndex(index);}} aria-label={`${item.name}${owned?"":" indisponível"}`}>
+                <span className="inventory-item-icon"><ItemIcon itemId={item.id} snapshot={snapshot}/></span><strong>{item.name}</strong><small>{item.description}</small>{count!==null&&<b>{count}</b>}{durability!==null&&<i><em style={{width:`${durability}%`}}/></i>}
+              </button>;})}
+            </div>
+            <div className="inventory-section-heading hotbar-heading"><div><strong>Atalhos</strong><small>Solte o item no slot desejado</small></div><span><kbd>L1/R1</kbd> slot · <kbd>□</kbd> equipar</span></div>
+            <div className="inventory-hotbar" aria-label="Configuração da barra de atalhos">
+              {snapshot.hotbarSlots.map((itemId,index)=>{const item=ITEM_BY_ID.get(itemId),count=itemCount(itemId,snapshot);return <button key={index} type="button" draggable={Boolean(itemId)} className={`inventory-hotbar-slot ${hotbarEditSlot===index?"selected":""}`} onClick={()=>{setHotbarEditSlot(index);const selected=INVENTORY_ITEMS[selectedInventoryIndex];if(itemOwned(selected.id,snapshot))assignInventoryItem(selected.id,index);}} onDragStart={event=>{if(itemId){event.dataTransfer.setData("text/plain",itemId);event.dataTransfer.effectAllowed="move";}}} onDragOver={event=>{event.preventDefault();event.dataTransfer.dropEffect="move";}} onDrop={event=>{event.preventDefault();const dropped=event.dataTransfer.getData("text/plain");if(ITEM_BY_ID.has(dropped))assignInventoryItem(dropped,index);}} aria-label={`Atalho ${index+1}: ${item?.name??"vazio"}`}>
+                <span>{index+1}</span><ItemIcon itemId={itemId} snapshot={snapshot}/>{count!==null&&count>0&&<b>{count}</b>}
+              </button>;})}
+            </div>
+          </div>
+          <div className="crafting-heading"><strong>Fabricação</strong><small>Use os recursos da mochila para criar equipamentos</small></div>
           <div className="recipe-list">
             {CRAFTING_RECIPES.map((recipe,index)=>{const affordable=snapshot.wood>=recipe.cost.wood&&snapshot.stone>=recipe.cost.stone;return <button key={recipe.id} className={`recipe-card ${selectedRecipe===index?"selected":""} ${affordable?"affordable":"locked"}`} onMouseEnter={()=>setSelectedRecipe(index)} onClick={()=>gameRef.current?.craft(recipe.id)}>
               <span className={`recipe-icon ${recipe.id}`}>{recipe.id==="campfire"?"♨":recipe.id==="spear"?"↟":"⌁"}</span><div><strong>{recipe.name}</strong><small>{recipe.description}</small><em><i className={snapshot.wood>=recipe.cost.wood?"ready":""}>▰ {recipe.cost.wood}</i><i className={snapshot.stone>=recipe.cost.stone?"ready":""}>◆ {recipe.cost.stone}</i></em></div><kbd>{selectedRecipe===index?"✕":""}</kbd>
             </button>;})}
           </div>
-          <footer><span><kbd>↑↓</kbd> escolher</span><span><kbd>✕ / Enter</kbd> fabricar</span><span><kbd>○ / I</kbd> voltar</span></footer>
+          <footer><span><kbd>←→</kbd> item</span><span><kbd>□ / Espaço</kbd> equipar</span><span><kbd>↑↓</kbd> receita</span><span><kbd>✕ / Enter</kbd> fabricar</span><span><kbd>○ / I</kbd> voltar</span></footer>
         </div>
       </section>
 
@@ -251,7 +280,7 @@ export default function GameShell() {
       </section>
 
       <section className={`screen death-screen ${screen!=="dead"?"hidden":""}`}>
-        <div className="result-card"><p className="eyebrow">Fim da expedição</p><h2>Você não resistiu</h2><p>Distância explorada: <strong>{snapshot.distance} metros</strong><br/>Recursos reunidos: <strong>{snapshot.berries+snapshot.wood+snapshot.stone}</strong></p><div className="menu-actions"><button className="primary-btn" onClick={start}>Tentar novamente <small>✕</small></button><button className="secondary-btn" onClick={()=>setScreen("title")}>Voltar ao título <small>○</small></button></div></div>
+        <div className="result-card"><p className="eyebrow">Fim da expedição</p><h2>Você não resistiu</h2><p>Distância explorada: <strong>{snapshot.distance} metros</strong><br/>Recursos reunidos: <strong>{snapshot.berries+snapshot.rawMeat+snapshot.cookedMeat+snapshot.wood+snapshot.stone}</strong></p><div className="menu-actions"><button className="primary-btn" onClick={start}>Tentar novamente <small>✕</small></button><button className="secondary-btn" onClick={()=>setScreen("title")}>Voltar ao título <small>○</small></button></div></div>
       </section>
     </main>
   );
